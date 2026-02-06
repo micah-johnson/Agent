@@ -14,7 +14,9 @@
   "license": "MIT",
   "dependencies": {
     "@mariozechner/pi-ai": "^0.52.6",
-    "@slack/bolt": "^4.2.0"
+    "@slack/bolt": "^4.2.0",
+    "sqlite-vec": "^0.1.7-alpha.2",
+    "voyageai": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

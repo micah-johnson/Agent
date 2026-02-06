@@ -4,11 +4,16 @@ import { Orchestrator } from '../orchestrator/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createSpawnSubagentTool } from '../tools/spawn-subagent.js';
 import { createCheckTasksTool } from '../tools/check-tasks.js';
+import { searchMemoryTool } from '../tools/search-memory.js';
+import { updateKnowledgeTool } from '../tools/update-knowledge.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
+import { loadKnowledge } from '../memory/knowledge.js';
+import { indexMessages } from '../memory/indexer.js';
 import { readFileSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import type { AssistantMessage, Message } from '@mariozechner/pi-ai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,10 +24,44 @@ function log(msg: string) {
   appendFileSync('/tmp/cletus.log', line);
 }
 
+/**
+ * Extract text content from a conversation's new messages for indexing.
+ * Only indexes the latest user message and assistant response.
+ */
+function extractIndexEntries(
+  userMessage: string,
+  messages: Message[],
+): Array<{ role: string; content: string }> {
+  const entries: Array<{ role: string; content: string }> = [];
+
+  // Index the user message
+  if (userMessage.trim()) {
+    entries.push({ role: 'user', content: userMessage });
+  }
+
+  // Find the last assistant message and extract its text
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role === 'assistant') {
+      const assistant = msg as AssistantMessage;
+      const text = assistant.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      if (text.trim()) {
+        entries.push({ role: 'assistant', content: text });
+      }
+      break;
+    }
+  }
+
+  return entries;
+}
+
 export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator: Orchestrator) {
   // Cache system prompt at registration time — no reason to read disk per message
   const systemPromptPath = join(__dirname, '../../config/system-prompt.md');
-  const systemPrompt = readFileSync(systemPromptPath, 'utf-8');
+  const baseSystemPrompt = readFileSync(systemPromptPath, 'utf-8');
 
   const checkTasksTool = createCheckTasksTool(orchestrator);
   const conversationStore = new ConversationStore();
@@ -61,7 +100,19 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
         user_id: userId,
       });
 
-      const tools = ToolRegistry.forOrchestrator([spawnTool, checkTasksTool]);
+      const tools = ToolRegistry.forOrchestrator([
+        spawnTool,
+        checkTasksTool,
+        searchMemoryTool,
+        updateKnowledgeTool,
+      ]);
+
+      // Load knowledge base and prepend to system prompt
+      const knowledge = loadKnowledge();
+      const systemPrompt = knowledge.trim()
+        ? `${baseSystemPrompt}\n\n## Knowledge Base\n\n${knowledge}`
+        : baseSystemPrompt;
+
       const history = conversationStore.load(channelId);
 
       // Call Claude with retry
@@ -77,6 +128,14 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
 
       // Persist conversation history
       conversationStore.save(channelId, response.messages);
+
+      // Index the new messages for memory search (async, don't block response)
+      const indexEntries = extractIndexEntries(userMessage, response.messages);
+      if (indexEntries.length > 0) {
+        indexMessages('conversation', channelId, indexEntries).catch((err) => {
+          log(`Indexing failed for channel ${channelId}: ${err?.message || err}`);
+        });
+      }
 
       // Check if compaction is needed (async, don't block the response)
       if (needsCompaction(response.messages)) {

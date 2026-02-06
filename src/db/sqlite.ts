@@ -4,6 +4,7 @@
  */
 
 import { Database } from 'bun:sqlite';
+import * as sqliteVec from 'sqlite-vec';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
@@ -20,6 +21,10 @@ export function getDb(): Database {
   }
 
   db = new Database(DB_PATH);
+
+  // Load sqlite-vec extension for vector search
+  sqliteVec.load(db);
+
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA busy_timeout = 5000');
 
@@ -51,6 +56,37 @@ export function getDb(): Database {
     )
   `);
 
-  console.log('✓ SQLite database initialized');
+  // Individual memory entries for search
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  // FTS5 keyword search over memory entries
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      content,
+      source UNINDEXED,
+      source_id UNINDEXED,
+      role UNINDEXED,
+      created_at UNINDEXED
+    )
+  `);
+
+  // Vector embeddings via sqlite-vec (voyage-3-lite: 512 dims)
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
+      entry_id INTEGER PRIMARY KEY,
+      embedding float[512]
+    )
+  `);
+
+  console.log('✓ SQLite database initialized (with sqlite-vec)');
   return db;
 }
