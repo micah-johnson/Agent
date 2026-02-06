@@ -12,7 +12,7 @@ import {
   type AssistantMessage,
   type ToolCall,
 } from '@mariozechner/pi-ai';
-import { toolRegistry } from '../tools/registry.js';
+import { toolRegistry, ToolRegistry } from '../tools/registry.js';
 
 const MAX_ITERATIONS = 50;
 
@@ -21,6 +21,8 @@ export interface AgentLoopOptions {
   model: Model;
   systemPrompt: string;
   maxIterations?: number;
+  tools?: ToolRegistry;
+  history?: Message[];
 }
 
 export interface AgentLoopResult {
@@ -28,6 +30,7 @@ export interface AgentLoopResult {
   iterations: number;
   toolCalls: number;
   stopped: boolean;
+  messages: Message[];
 }
 
 export async function runAgentLoop(
@@ -38,7 +41,10 @@ export async function runAgentLoop(
   let iterations = 0;
   let totalToolCalls = 0;
 
+  const registry = options.tools || toolRegistry;
+
   const messages: Message[] = [
+    ...(options.history || []),
     {
       role: 'user',
       content: userMessage,
@@ -46,7 +52,7 @@ export async function runAgentLoop(
     },
   ];
 
-  const tools = toolRegistry.toClaudeFormat();
+  const tools = registry.toClaudeFormat();
 
   while (iterations < maxIterations) {
     iterations++;
@@ -72,16 +78,18 @@ export async function runAgentLoop(
         .map((block) => block.text)
         .join('');
 
+      messages.push(response);
       return {
         text: text || 'Task completed.',
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
+        messages,
       };
     }
 
     if (response.stopReason === 'error') {
-      console.error('[cletus] Agent loop API error:', response.errorMessage);
+      throw new Error(`API error: ${response.errorMessage}`);
     }
 
     // Extract tool calls
@@ -95,11 +103,13 @@ export async function runAgentLoop(
         .map((block) => block.text)
         .join('');
 
+      messages.push(response);
       return {
         text: text || 'Task completed.',
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
+        messages,
       };
     }
 
@@ -110,7 +120,7 @@ export async function runAgentLoop(
     for (const toolCall of callBlocks) {
       totalToolCalls++;
 
-      const tool = toolRegistry.get(toolCall.name);
+      const tool = registry.get(toolCall.name);
 
       if (!tool) {
         messages.push({
@@ -153,5 +163,6 @@ export async function runAgentLoop(
     iterations,
     toolCalls: totalToolCalls,
     stopped: false,
+    messages,
   };
 }

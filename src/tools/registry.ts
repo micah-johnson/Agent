@@ -9,16 +9,16 @@ import { fileWriteTool } from './file-write.js';
 import { fileEditTool } from './file-edit.js';
 import { grepTool } from './grep.js';
 
+const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool];
+
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
 
-  constructor() {
-    // Register core tools
-    this.register(bashTool);
-    this.register(fileReadTool);
-    this.register(fileWriteTool);
-    this.register(fileEditTool);
-    this.register(grepTool);
+  constructor(tools?: Tool[]) {
+    const toRegister = tools || CORE_TOOLS;
+    for (const tool of toRegister) {
+      this.register(tool);
+    }
   }
 
   register(tool: Tool): void {
@@ -43,7 +43,17 @@ export class ToolRegistry {
       parameters: tool.input_schema, // pi-ai uses "parameters" not "input_schema"
     }));
   }
+
+  /** Sub-agents get execution tools only — no spawning */
+  static forSubAgent(): ToolRegistry {
+    return new ToolRegistry(CORE_TOOLS);
+  }
+
+  /** Orchestrator gets core tools + any extra tools (spawn_subagent, check_tasks) */
+  static forOrchestrator(extraTools: Tool[]): ToolRegistry {
+    return new ToolRegistry([...CORE_TOOLS, ...extraTools]);
+  }
 }
 
-// Singleton instance
+// Singleton instance (backward-compatible default)
 export const toolRegistry = new ToolRegistry();

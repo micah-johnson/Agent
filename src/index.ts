@@ -1,5 +1,6 @@
 import { App } from '@slack/bolt';
 import { ClaudeClient } from './llm/client.js';
+import { Orchestrator } from './orchestrator/index.js';
 import { setupMessageHandler } from './slack/handler.js';
 
 // Catch unhandled rejections so they don't silently kill the process
@@ -20,16 +21,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Initialize Claude client with OAuth
+  // Initialize Claude client (reads ANTHROPIC_API_KEY from .env)
   const claude = new ClaudeClient();
-
-  // Check if we need to login
-  if (!claude.isAuthenticated()) {
-    console.log('⚠️  No OAuth credentials found. Starting login flow...\n');
-    await claude.login();
-  }
-
   console.log('✓ Claude client initialized');
+
+  // Initialize orchestrator (creates DB + task store + worker pool)
+  const orchestrator = new Orchestrator(claude.getApiKey());
+  console.log('✓ Orchestrator initialized');
 
   // Initialize Slack app with Socket Mode
   const app = new App({
@@ -38,12 +36,24 @@ async function main() {
     socketMode: true,
   });
 
-  // Set up message handler
-  setupMessageHandler(app, claude);
+  // Give orchestrator access to Slack for posting sub-agent results
+  orchestrator.setSlackClient(app.client);
+
+  // Set up message handler with orchestrator
+  setupMessageHandler(app, claude, orchestrator);
 
   // Start the app
   await app.start();
   console.log('✓ Slack app started (Socket Mode)');
+
+  // Warmup: verify Slack connection is live before accepting messages
+  try {
+    await app.client.auth.test();
+    console.log('✓ Slack connection verified');
+  } catch (error) {
+    console.error('⚠️  Slack auth test failed:', error);
+  }
+
   console.log('\n✅ Cletus is running. Send a DM to test.\n');
 }
 
