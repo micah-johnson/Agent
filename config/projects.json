@@ -1,0 +1,14 @@
+[
+  {
+    "name": "cletus",
+    "path": "/mnt/c/Users/micah/Documents/Cletus",
+    "description": "Personal AI agent — Bun, TypeScript, Slack, Claude",
+    "language": "typescript"
+  },
+  {
+    "name": "lambda-functions",
+    "path": "/mnt/c/Users/micah/Documents/Aviato/Lambda-Functions",
+    "description": "Aviato Lambda Functions — Node.js/TypeScript serverless functions",
+    "language": "typescript"
+  }
+]

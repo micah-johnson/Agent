@@ -2,6 +2,9 @@ import { App } from '@slack/bolt';
 import { ClaudeClient } from './llm/client.js';
 import { Orchestrator } from './orchestrator/index.js';
 import { setupMessageHandler } from './slack/handler.js';
+import { loadProjects } from './workspace/registry.js';
+import { indexAllProjects } from './workspace/indexer.js';
+import { startWatching, stopWatching } from './workspace/watcher.js';
 
 // Catch unhandled rejections so they don't silently kill the process
 process.on('unhandledRejection', (error) => {
@@ -29,6 +32,15 @@ async function main() {
   const orchestrator = new Orchestrator(claude.getApiKey());
   console.log('✓ Orchestrator initialized');
 
+  // Index registered projects and start file watchers
+  const projects = loadProjects();
+  if (projects.length > 0) {
+    console.log('✓ Indexing projects...');
+    indexAllProjects();
+    startWatching(projects);
+    console.log('✓ Workspace indexed and watching');
+  }
+
   // Initialize Slack app with Socket Mode
   const app = new App({
     token: process.env.SLACK_BOT_TOKEN,
@@ -55,6 +67,17 @@ async function main() {
   }
 
   console.log('\n✅ Cletus is running. Send a DM to test.\n');
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.log('\n🛑 Shutting down...');
+    await stopWatching();
+    await app.stop();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
 // Start the bot

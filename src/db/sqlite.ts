@@ -87,6 +87,19 @@ export function getDb(): Database {
     )
   `);
 
+  // Project workspace summaries
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_summaries (
+      project_name TEXT PRIMARY KEY,
+      tree_text TEXT,
+      key_files TEXT,
+      git_log TEXT,
+      git_branch TEXT,
+      dependencies TEXT,
+      indexed_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
   console.log('✓ SQLite database initialized (with sqlite-vec)');
   return db;
 }

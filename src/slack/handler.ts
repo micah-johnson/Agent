@@ -6,11 +6,12 @@ import { createSpawnSubagentTool } from '../tools/spawn-subagent.js';
 import { createCheckTasksTool } from '../tools/check-tasks.js';
 import { searchMemoryTool } from '../tools/search-memory.js';
 import { updateKnowledgeTool } from '../tools/update-knowledge.js';
+import { getProjectContextTool } from '../tools/get-project-context.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
 import { loadKnowledge } from '../memory/knowledge.js';
 import { indexMessages } from '../memory/indexer.js';
-import { readFileSync, appendFileSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import type { AssistantMessage, Message } from '@mariozechner/pi-ai';
@@ -63,6 +64,22 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
   const systemPromptPath = join(__dirname, '../../config/system-prompt.md');
   const baseSystemPrompt = readFileSync(systemPromptPath, 'utf-8');
 
+  // Load CLI tools config for system prompt
+  const cliToolsPath = join(__dirname, '../../config/cli-tools.json');
+  let cliToolsPrompt = '';
+  if (existsSync(cliToolsPath)) {
+    try {
+      const cliTools = JSON.parse(readFileSync(cliToolsPath, 'utf-8'));
+      const lines = Object.entries(cliTools).map(([name, info]: [string, any]) => {
+        const status = info.available ? 'available' : 'not available';
+        const note = info.note ? ` (${info.note})` : '';
+        const extra = info.project ? ` — project: ${info.project}` : '';
+        return `- ${name}: ${status}${note}${extra}`;
+      });
+      cliToolsPrompt = `\n\n## Available CLI Tools\n\n${lines.join('\n')}`;
+    } catch {}
+  }
+
   const checkTasksTool = createCheckTasksTool(orchestrator);
   const conversationStore = new ConversationStore();
 
@@ -105,13 +122,16 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
         checkTasksTool,
         searchMemoryTool,
         updateKnowledgeTool,
+        getProjectContextTool,
       ]);
 
-      // Load knowledge base and prepend to system prompt
+      // Load knowledge base and build full system prompt
       const knowledge = loadKnowledge();
-      const systemPrompt = knowledge.trim()
-        ? `${baseSystemPrompt}\n\n## Knowledge Base\n\n${knowledge}`
-        : baseSystemPrompt;
+      let systemPrompt = baseSystemPrompt;
+      if (knowledge.trim()) {
+        systemPrompt += `\n\n## Knowledge Base\n\n${knowledge}`;
+      }
+      systemPrompt += cliToolsPrompt;
 
       const history = conversationStore.load(channelId);
 

@@ -1,0 +1,5 @@
+{
+  "git": { "available": true },
+  "bun": { "available": true },
+  "gh": { "available": false, "note": "not installed yet" }
+}
