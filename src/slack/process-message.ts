@@ -145,7 +145,7 @@ export async function processMessage(
     user_id: userId,
   });
   const selfRestartTool = createSelfRestartTool({ channel_id: channelId, user_id: userId });
-  const canvasTool = createCanvasTool(client, { channel_id: channelId });
+  const canvasTool = createCanvasTool(client, { channel_id: channelId, user_id: userId });
 
   const mcpTools = MCPManager.getInstance().getAllTools();
   const tools = ToolRegistry.forOrchestrator([

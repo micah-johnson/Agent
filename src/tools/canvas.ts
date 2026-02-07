@@ -13,6 +13,7 @@ import type { Tool, ToolInput, ToolResult } from './types.js';
 
 export interface CanvasContext {
   channel_id: string;
+  user_id: string;
 }
 
 export function createCanvasTool(
@@ -144,7 +145,18 @@ async function handleCreate(
 
   const canvasId = result.canvas_id;
 
-  // Set access if requested
+  // Auto-grant the requesting user write access
+  try {
+    await client.apiCall('canvases.access.set', {
+      canvas_id: canvasId,
+      access_level: 'write',
+      user_ids: [context.user_id],
+    });
+  } catch {
+    // Non-fatal — user might already have access via channel
+  }
+
+  // Set additional access if requested
   if (access && (access.channel_ids?.length || access.user_ids?.length)) {
     try {
       const accessParams: Record<string, any> = {
