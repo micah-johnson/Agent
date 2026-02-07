@@ -10,7 +10,7 @@ import { runAgentLoop } from '../agent/loop.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { Task } from '../tasks/store.js';
 
-const SUB_AGENT_SYSTEM_PROMPT = `You are a task worker for Cletus, a personal AI agent.
+const SUB_AGENT_SYSTEM_PROMPT = `You are a task worker for Agent, a personal AI agent.
 
 You have been given a specific task to complete. Focus on completing it efficiently using your tools.
 

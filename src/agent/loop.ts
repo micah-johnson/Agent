@@ -14,6 +14,18 @@ import {
 } from '@mariozechner/pi-ai';
 import { toolRegistry, ToolRegistry } from '../tools/registry.js';
 
+export interface ToolProgressInfo {
+  name: string;
+  args: Record<string, any>;
+  success?: boolean;
+}
+
+export interface ProgressEvent {
+  phase: 'thinking' | 'tools_start' | 'tools_done';
+  iteration: number;
+  tools?: ToolProgressInfo[];
+}
+
 const MAX_ITERATIONS = 50;
 
 export interface AgentLoopOptions {
@@ -24,6 +36,8 @@ export interface AgentLoopOptions {
   tools?: ToolRegistry;
   history?: Message[];
   reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  onProgress?: (event: ProgressEvent) => void;
+  signal?: AbortSignal;
 }
 
 export interface AgentLoopUsage {
@@ -72,7 +86,20 @@ export async function runAgentLoop(
   const tools = registry.toClaudeFormat();
 
   while (iterations < maxIterations) {
+    if (options.signal?.aborted) {
+      return {
+        text: 'Stopped.',
+        iterations,
+        toolCalls: totalToolCalls,
+        stopped: true,
+        messages,
+        usage,
+      };
+    }
+
     iterations++;
+
+    options.onProgress?.({ phase: 'thinking', iteration: iterations });
 
     const response: AssistantMessage = await completeSimple(
       options.model,
@@ -86,6 +113,7 @@ export async function runAgentLoop(
         maxTokens: 16384,
         temperature: 1.0,
         ...(options.reasoning ? { reasoning: options.reasoning } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
       },
     );
 
@@ -96,6 +124,18 @@ export async function runAgentLoop(
       usage.cacheReadTokens += response.usage.cacheRead || 0;
       usage.cacheWriteTokens += response.usage.cacheWrite || 0;
       usage.totalTokens += response.usage.totalTokens || 0;
+    }
+
+    // Aborted mid-request
+    if (response.stopReason === 'aborted' || options.signal?.aborted) {
+      return {
+        text: 'Stopped.',
+        iterations,
+        toolCalls: totalToolCalls,
+        stopped: true,
+        messages,
+        usage,
+      };
     }
 
     // No more tool calls — extract final text
@@ -145,8 +185,29 @@ export async function runAgentLoop(
     // Add assistant response to history
     messages.push(response);
 
+    // Check abort before executing tools
+    if (options.signal?.aborted) {
+      return {
+        text: 'Stopped.',
+        iterations,
+        toolCalls: totalToolCalls,
+        stopped: true,
+        messages,
+        usage,
+      };
+    }
+
     // Execute tool calls in parallel and feed results back
     totalToolCalls += callBlocks.length;
+
+    options.onProgress?.({
+      phase: 'tools_start',
+      iteration: iterations,
+      tools: callBlocks.map((tc) => ({
+        name: tc.name,
+        args: tc.arguments || {},
+      })),
+    });
 
     const toolResults = await Promise.all(
       callBlocks.map(async (toolCall) => {
@@ -186,6 +247,16 @@ export async function runAgentLoop(
         }
       }),
     );
+
+    options.onProgress?.({
+      phase: 'tools_done',
+      iteration: iterations,
+      tools: callBlocks.map((tc, i) => ({
+        name: tc.name,
+        args: tc.arguments || {},
+        success: !toolResults[i].isError,
+      })),
+    });
 
     messages.push(...toolResults);
   }

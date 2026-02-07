@@ -1,4 +1,4 @@
-# Cletus
+# Agent
 
 Personal AI agent. Lives in Slack. Writes code, runs tasks, remembers everything.
 
@@ -22,7 +22,7 @@ Basic Slack bot with Claude integration. Receives DMs, calls Claude, responds wi
    - Visit the authorization URL in your browser
    - After authorizing, copy the full redirect URL
    - Paste it back in the terminal
-   - Credentials are saved to `~/.cletus/credentials.json`
+   - Credentials are saved to `~/.agent/credentials.json`
 
 4. **Run the bot:**
    ```bash
@@ -31,7 +31,7 @@ Basic Slack bot with Claude integration. Receives DMs, calls Claude, responds wi
 
 ## Usage
 
-Send a direct message to Cletus in Slack. It will:
+Send a direct message to Agent in Slack. It will:
 - Remember conversation context within the session
 - Respond using Claude Opus 4.6
 - Keep the last 50 messages in history
@@ -39,7 +39,7 @@ Send a direct message to Cletus in Slack. It will:
 ## Architecture
 
 ```
-You ←→ Cletus (Slack DM)
+You ←→ Agent (Slack DM)
          ↓
       Claude Opus
 ```

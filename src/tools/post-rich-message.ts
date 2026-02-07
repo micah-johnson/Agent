@@ -10,6 +10,7 @@ import type { Tool, ToolInput, ToolResult } from './types.js';
 
 export interface RichMessageContext {
   channel_id: string;
+  onNewMessage?: (ts: string, blocks: any[]) => void;
 }
 
 export function createPostRichMessageTool(
@@ -21,7 +22,7 @@ export function createPostRichMessageTool(
     description:
       'Post a rich Slack message using Block Kit for structured content. ' +
       'Use this for: status updates, project summaries, task lists, confirmation prompts with buttons, ' +
-      'multi-choice questions with dropdowns. Do NOT use for simple conversational replies — ' +
+      'multi-choice questions with dropdowns, tables, data comparisons. Do NOT use for simple conversational replies — ' +
       'use your normal text response for those. Returns the message timestamp for future updates.',
     input_schema: {
       type: 'object',
@@ -42,7 +43,7 @@ export function createPostRichMessageTool(
         replace_ts: {
           type: 'string',
           description:
-            'Optional: timestamp of an existing message to update instead of posting a new one.',
+            'Optional: timestamp of a specific existing message to update.',
         },
       },
       required: ['blocks', 'text'],
@@ -66,7 +67,7 @@ export function createPostRichMessageTool(
 
       try {
         if (replaceTs) {
-          // Update existing message
+          // Update a specific existing message
           const result = await slackClient.chat.update({
             channel: context.channel_id,
             ts: replaceTs,
@@ -79,12 +80,13 @@ export function createPostRichMessageTool(
             metadata: { ts: result.ts },
           };
         } else {
-          // Post new message
+          // Post new message, notify progress updater to adopt it
           const result = await slackClient.chat.postMessage({
             channel: context.channel_id,
             blocks,
             text,
           });
+          context.onNewMessage?.(result.ts!, blocks);
           return {
             success: true,
             output: `Rich message posted (ts: ${result.ts}). Save this ts value if you need to update the message later.`,

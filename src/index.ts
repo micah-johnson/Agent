@@ -9,11 +9,11 @@ import { startWatching, stopWatching } from './workspace/watcher.js';
 
 // Catch unhandled rejections so they don't silently kill the process
 process.on('unhandledRejection', (error) => {
-  console.error('[cletus] Unhandled rejection:', error);
+  console.error('[agent] Unhandled rejection:', error);
 });
 
 async function main() {
-  console.log('🤖 Starting Cletus...\n');
+  console.log('🤖 Starting Agent...\n');
 
   // Validate Slack environment variables
   const requiredEnvVars = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'];
@@ -49,8 +49,9 @@ async function main() {
     socketMode: true,
   });
 
-  // Give orchestrator access to Slack for posting sub-agent results
+  // Give orchestrator access to Slack and Claude for sub-agent result routing
   orchestrator.setSlackClient(app.client);
+  orchestrator.setClaudeClient(claude);
 
   // Set up message handler and action handlers
   setupMessageHandler(app, claude, orchestrator);
@@ -69,7 +70,7 @@ async function main() {
     console.error('⚠️  Slack auth test failed:', error);
   }
 
-  console.log('\n✅ Cletus is running. Send a DM to test.\n');
+  console.log('\n✅ Agent is running. Send a DM to test.\n');
 
   // Graceful shutdown
   const shutdown = async () => {

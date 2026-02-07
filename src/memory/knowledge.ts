@@ -3,7 +3,7 @@
  *
  * The knowledge file is a structured markdown document with sections
  * (Preferences, Projects, Decisions, Patterns). It's loaded into the
- * system prompt on every request so Cletus always has context.
+ * system prompt on every request so Agent always has context.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';

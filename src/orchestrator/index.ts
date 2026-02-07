@@ -1,21 +1,44 @@
 /**
  * Orchestrator — glue layer connecting TaskStore, WorkerPool, and Slack
  *
- * Listens for task:complete events from the pool and posts results
- * back to the user's Slack DM. Also indexes task results for memory search.
+ * When sub-agents complete, results are buffered and debounced (3s),
+ * then fed back through the orchestrator model via processMessage()
+ * so the model can synthesize and format results naturally.
+ *
+ * Channel concurrency locks prevent user messages and sub-agent results
+ * from interleaving on the same channel.
  */
 
 import type { WebClient } from '@slack/web-api';
 import { TaskStore } from '../tasks/store.js';
 import { WorkerPool } from '../subagent/pool.js';
 import { indexMessages } from '../memory/indexer.js';
+import type { ClaudeClient } from '../llm/client.js';
+import type { ProgressUpdater } from '../slack/progress.js';
 
-const MAX_SLACK_LENGTH = 2000;
+const DEBOUNCE_MS = 3000;
+const MAX_RESULT_LENGTH = 3000;
+
+interface PendingResult {
+  taskId: string;
+  title: string;
+  channelId: string;
+  userId: string;
+  status: 'completed' | 'failed';
+  result: string | null;
+  error: string | null;
+}
 
 export class Orchestrator {
   readonly store: TaskStore;
   readonly pool: WorkerPool;
   private slackClient: WebClient | null = null;
+  private claudeClient: ClaudeClient | null = null;
+  private pendingResults = new Map<string, PendingResult[]>();
+  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private channelLocks = new Map<string, Promise<void>>();
+  private activeAbort = new Map<string, AbortController>();
+  private activeProgress = new Map<string, ProgressUpdater>();
 
   constructor(apiKey: string) {
     this.store = new TaskStore();
@@ -30,11 +53,74 @@ export class Orchestrator {
     this.slackClient = client;
   }
 
+  setClaudeClient(claude: ClaudeClient): void {
+    this.claudeClient = claude;
+  }
+
+  /**
+   * Create an AbortController for a channel's active work.
+   * Returns the signal to pass through the processing pipeline.
+   */
+  createAbortSignal(channelId: string): AbortSignal {
+    const controller = new AbortController();
+    this.activeAbort.set(channelId, controller);
+    return controller.signal;
+  }
+
+  /**
+   * Track the active ProgressUpdater for a channel so stop can update it.
+   */
+  setActiveProgress(channelId: string, progress: ProgressUpdater): void {
+    this.activeProgress.set(channelId, progress);
+  }
+
+  /**
+   * Clear the abort controller and progress tracker for a channel.
+   */
+  clearAbortSignal(channelId: string): void {
+    this.activeAbort.delete(channelId);
+    this.activeProgress.delete(channelId);
+  }
+
+  /**
+   * Abort the currently active work on a channel.
+   * Immediately updates the progress message to show "Aborted".
+   * Returns true if there was something to abort.
+   */
+  async abortChannel(channelId: string): Promise<boolean> {
+    const controller = this.activeAbort.get(channelId);
+    if (controller) {
+      controller.abort();
+      this.activeAbort.delete(channelId);
+
+      // Immediately update the progress message
+      const progress = this.activeProgress.get(channelId);
+      if (progress) {
+        await progress.abort('Aborted');
+        this.activeProgress.delete(channelId);
+      }
+
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Serialize async work per channel. Both user-initiated messages
+   * and sub-agent result processing acquire this lock.
+   */
+  async withChannelLock(channelId: string, fn: () => Promise<void>): Promise<void> {
+    const prev = this.channelLocks.get(channelId) || Promise.resolve();
+    const next = prev.then(fn, fn);
+    this.channelLocks.set(channelId, next);
+    await next;
+  }
+
   private async onTaskComplete(taskId: string): Promise<void> {
     const task = this.store.get(taskId);
-    if (!task || !this.slackClient) return;
+    if (!task) return;
 
-    // Index task content for memory search (async, don't block Slack post)
+    // Index task content for memory search (async, don't block)
     indexMessages('task', taskId, [
       { role: 'task_prompt', content: `${task.title}: ${task.prompt}` },
       ...(task.result ? [{ role: 'task_result', content: task.result }] : []),
@@ -43,24 +129,129 @@ export class Orchestrator {
       console.error(`[orchestrator] Failed to index task ${taskId}: ${err?.message || err}`);
     });
 
-    let message: string;
-    if (task.status === 'completed') {
-      let result = task.result || 'Task completed.';
-      if (result.length > MAX_SLACK_LENGTH) {
-        result = result.substring(0, MAX_SLACK_LENGTH - 20) + '\n... (truncated)';
-      }
-      message = `*Task complete:* ${task.title}\n\n${result}`;
-    } else {
-      message = `*Task failed:* ${task.title}\n\nError: ${task.error || 'Unknown error'}`;
+    // Buffer the result
+    const pending: PendingResult = {
+      taskId: task.id,
+      title: task.title,
+      channelId: task.channel_id,
+      userId: task.user_id,
+      status: task.status as 'completed' | 'failed',
+      result: task.result,
+      error: task.error,
+    };
+
+    const channelId = task.channel_id;
+    if (!this.pendingResults.has(channelId)) {
+      this.pendingResults.set(channelId, []);
+    }
+    this.pendingResults.get(channelId)!.push(pending);
+
+    // Reset debounce timer for this channel
+    const existingTimer = this.debounceTimers.get(channelId);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    this.debounceTimers.set(
+      channelId,
+      setTimeout(() => {
+        this.debounceTimers.delete(channelId);
+        this.processPendingResults(channelId);
+      }, DEBOUNCE_MS),
+    );
+  }
+
+  private async processPendingResults(channelId: string): Promise<void> {
+    const results = this.pendingResults.get(channelId);
+    this.pendingResults.delete(channelId);
+    if (!results || results.length === 0) return;
+
+    if (!this.slackClient || !this.claudeClient) {
+      console.error('[orchestrator] Cannot process results: missing Slack or Claude client');
+      return;
     }
 
-    try {
-      await this.slackClient.chat.postMessage({
-        channel: task.channel_id,
-        text: message,
-      });
-    } catch (error) {
-      console.error(`[orchestrator] Failed to post result for task ${taskId}:`, error);
-    }
+    const syntheticMessage = this.buildResultMessage(results);
+    const userId = results[0].userId;
+    const client = this.slackClient;
+    const claude = this.claudeClient;
+
+    // Lazy import to avoid circular dependency at module load time
+    const { processMessage, log } = await import('../slack/process-message.js');
+    const { ProgressUpdater } = await import('../slack/progress.js');
+
+    await this.withChannelLock(channelId, async () => {
+      const signal = this.createAbortSignal(channelId);
+      const progress = new ProgressUpdater(channelId, client);
+      this.setActiveProgress(channelId, progress);
+      try {
+        await progress.postInitial();
+
+        const result = await processMessage(
+          channelId,
+          userId,
+          syntheticMessage,
+          client,
+          claude,
+          this,
+          (event) => progress.onProgress(event),
+          (ts, blocks) => progress.adoptMessage(ts, blocks),
+          signal,
+        );
+
+        if (!signal.aborted) {
+          await progress.finalize(result.text, result.toolCalls, result.usage);
+        }
+      } catch (err: any) {
+        if (!signal.aborted) {
+          log(`[orchestrator] Failed to process sub-agent results: ${err?.message || err}`);
+          await progress.abort('Sorry, something went wrong processing sub-agent results.');
+        }
+      } finally {
+        this.clearAbortSignal(channelId);
+      }
+    });
   }
+
+  private buildResultMessage(results: PendingResult[]): string {
+    if (results.length === 1) {
+      const r = results[0];
+      const status = r.status === 'completed' ? 'completed' : 'failed';
+      let body: string;
+      if (r.status === 'completed') {
+        body = truncate(r.result || 'Task completed with no output.', MAX_RESULT_LENGTH);
+      } else {
+        body = `Error: ${r.error || 'Unknown error'}`;
+      }
+      return `[Sub-agent result] Task: "${r.title}"\nStatus: ${status}\n\n${body}`;
+    }
+
+    const completedCount = results.filter((r) => r.status === 'completed').length;
+    const failedCount = results.filter((r) => r.status === 'failed').length;
+    const parts: string[] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      const status = r.status === 'completed' ? 'completed' : 'failed';
+      let body: string;
+      if (r.status === 'completed') {
+        body = truncate(r.result || 'Task completed with no output.', MAX_RESULT_LENGTH);
+      } else {
+        body = `Error: ${r.error || 'Unknown error'}`;
+      }
+      parts.push(`${i + 1}. "${r.title}" — ${status}\n${body}`);
+    }
+
+    const summary = [
+      completedCount > 0 ? `${completedCount} completed` : null,
+      failedCount > 0 ? `${failedCount} failed` : null,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    return `[Sub-agent results] ${results.length} tasks (${summary}):\n\n${parts.join('\n\n')}`;
+  }
+}
+
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - 20) + '\n... (truncated)';
 }

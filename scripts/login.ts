@@ -1,5 +1,5 @@
 /**
- * Standalone OAuth login for Cletus
+ * Standalone OAuth login for Agent
  */
 
 import { loginAnthropic } from '@mariozechner/pi-ai';
@@ -8,9 +8,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 import * as readline from 'readline';
 
-const CREDENTIALS_PATH = join(homedir(), '.cletus', 'credentials.json');
+const CREDENTIALS_PATH = join(homedir(), '.agent', 'credentials.json');
 
-console.log('\n🔐 Cletus OAuth Login\n');
+console.log('\n🔐 Agent OAuth Login\n');
 
 const credentials = await loginAnthropic(
   (url: string) => {
@@ -52,7 +52,7 @@ const credentials = await loginAnthropic(
 );
 
 // Save credentials
-const dir = join(homedir(), '.cletus');
+const dir = join(homedir(), '.agent');
 if (!existsSync(dir)) {
   mkdirSync(dir, { recursive: true });
 }

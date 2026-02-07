@@ -21,7 +21,7 @@ export function createSpawnSubagentTool(
     name: 'spawn_subagent',
     description:
       'Spawn a background sub-agent to handle a long-running or complex task. ' +
-      'The sub-agent runs independently and posts its result to Slack when done. ' +
+      'The sub-agent runs independently and its results are routed back through you for synthesis. ' +
       'Use this for tasks that would take many tool calls, or when you want to run things in parallel. ' +
       'Returns a task_id immediately — use check_tasks to monitor progress.',
     input_schema: {
@@ -64,7 +64,7 @@ export function createSpawnSubagentTool(
 
       return {
         success: true,
-        output: `Task spawned: ${task.id}\nTitle: ${title}\nModel: ${model}\nStatus: pending → running\n\nThe sub-agent is working on this in the background. Results will be posted to this DM when done.`,
+        output: `Task spawned: ${task.id}\nTitle: ${title}\nModel: ${model}\nStatus: pending → running\n\nThe sub-agent is working on this in the background. When it finishes, the results will be routed back to you for synthesis.`,
       };
     },
   };

@@ -9,7 +9,7 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const DB_DIR = join(import.meta.dir, '../../data');
-const DB_PATH = join(DB_DIR, 'cletus.sqlite');
+const DB_PATH = join(DB_DIR, 'agent.sqlite');
 
 let db: Database | null = null;
 

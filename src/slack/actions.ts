@@ -9,7 +9,8 @@
 import type { App } from '@slack/bolt';
 import type { ClaudeClient } from '../llm/client.js';
 import type { Orchestrator } from '../orchestrator/index.js';
-import { processMessage, log } from './handler.js';
+import { processMessage, log } from './process-message.js';
+import { ProgressUpdater } from './progress.js';
 
 export function setupActionHandlers(
   app: App,
@@ -26,6 +27,10 @@ export function setupActionHandlers(
     const userId = body.user?.id;
 
     if (!channelId || !userId) return;
+
+    // Auth check
+    const allowed = (process.env.ALLOWED_SLACK_USERS || '').split(',').map((s) => s.trim());
+    if (allowed.length > 0 && allowed[0] !== '' && !allowed.includes(userId)) return;
 
     // Extract what the user selected
     let actionText: string;
@@ -85,27 +90,28 @@ export function setupActionHandlers(
       }
     }
 
-    // Process the action as a synthetic user message
-    try {
-      const result = await processMessage(
-        channelId,
-        userId,
-        actionText,
-        client,
-        claude,
-        orchestrator,
-      );
+    // Process the action as a synthetic user message with progress updates
+    await orchestrator.withChannelLock(channelId, async () => {
+      const progress = new ProgressUpdater(channelId, client);
+      try {
+        await progress.postInitial();
 
-      await client.chat.postMessage({
-        channel: channelId,
-        text: result.text,
-      });
-    } catch (err: any) {
-      await client.chat.postMessage({
-        channel: channelId,
-        text: 'Sorry, something went wrong processing your selection.',
-      });
-    }
+        const result = await processMessage(
+          channelId,
+          userId,
+          actionText,
+          client,
+          claude,
+          orchestrator,
+          (event) => progress.onProgress(event),
+          (ts, blocks) => progress.adoptMessage(ts, blocks),
+        );
+
+        await progress.finalize(result.text, result.toolCalls, result.usage);
+      } catch (err: any) {
+        await progress.abort('Sorry, something went wrong processing your selection.');
+      }
+    });
   });
 
   console.log('✓ Action handlers registered');

@@ -1,5 +1,5 @@
 {
-  "name": "cletus",
+  "name": "agent",
   "version": "0.1.0",
   "description": "Personal AI agent. Lives in Slack. Writes code, runs tasks, remembers everything.",
   "type": "module",

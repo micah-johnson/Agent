@@ -29,7 +29,7 @@ console.log('✓ Extracted OAuth code and state');
 console.log(`Code: ${code.substring(0, 20)}...`);
 console.log(`State: ${state.substring(0, 20)}...`);
 
-const CREDENTIALS_PATH = join(homedir(), '.cletus', 'credentials.json');
+const CREDENTIALS_PATH = join(homedir(), '.agent', 'credentials.json');
 
 console.log('\n🔐 Completing OAuth flow...\n');
 
@@ -46,7 +46,7 @@ try {
   );
 
   // Save credentials
-  const dir = join(homedir(), '.cletus');
+  const dir = join(homedir(), '.agent');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
