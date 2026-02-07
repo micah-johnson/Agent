@@ -19,7 +19,7 @@ import { createPostRichMessageTool } from '../tools/post-rich-message.js';
 import { createFileEditTool } from '../tools/file-edit.js';
 import { createUploadFileTool } from '../tools/upload-file.js';
 import { createScheduleTaskTool } from '../tools/schedule-task.js';
-import { selfRestartTool } from '../tools/self-restart.js';
+import { createSelfRestartTool } from '../tools/self-restart.js';
 import { getScheduler } from '../scheduler/index.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
@@ -143,6 +143,7 @@ export async function processMessage(
     channel_id: channelId,
     user_id: userId,
   });
+  const selfRestartTool = createSelfRestartTool({ channel_id: channelId });
 
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
@@ -155,7 +156,7 @@ export async function processMessage(
     fileEditTool,
     uploadFileTool,
     scheduleTaskTool,
-      selfRestartTool,
+    selfRestartTool,
   ]);
 
   const knowledge = loadKnowledge();

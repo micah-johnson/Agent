@@ -9,6 +9,8 @@ import { startWatching, stopWatching } from './workspace/watcher.js';
 import { getDb } from './db/sqlite.js';
 import { watchSettings, unwatchSettings, getSettings } from './config/settings.js';
 import { getScheduler } from './scheduler/index.js';
+import { readFileSync, unlinkSync, existsSync } from 'fs';
+import { RESTART_MARKER_PATH } from './tools/self-restart.js';
 
 // Catch unhandled rejections so they don't silently kill the process
 process.on('unhandledRejection', (error) => {
@@ -147,6 +149,22 @@ async function main() {
     console.log('✓ Slack connection verified');
   } catch (error) {
     console.error('⚠️  Slack auth test failed:', error);
+  }
+
+  // Check for restart marker — if we were restarted via self_restart, notify the user
+  try {
+    if (existsSync(RESTART_MARKER_PATH)) {
+      const marker = JSON.parse(readFileSync(RESTART_MARKER_PATH, 'utf-8'));
+      unlinkSync(RESTART_MARKER_PATH);
+      const resumeMsg = `✅ I'm back online.${marker.reason && marker.reason !== 'No reason specified' ? ` Restarted for: _${marker.reason}_` : ''}`;
+      await app.client.chat.postMessage({
+        channel: marker.channel_id,
+        text: resumeMsg,
+      });
+      console.log(`✓ Posted restart resume to ${marker.channel_id}`);
+    }
+  } catch (err) {
+    console.error('⚠️  Failed to process restart marker:', err);
   }
 
   console.log('\n✅ Agent is running. Send a DM to test.\n');
