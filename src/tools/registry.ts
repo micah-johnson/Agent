@@ -9,8 +9,9 @@ import { fileWriteTool } from './file-write.js';
 import { fileEditTool } from './file-edit.js';
 import { grepTool } from './grep.js';
 import { webFetchTool } from './web-fetch.js';
+import { webBrowserTool } from './web-browser.js';
 
-const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, webFetchTool];
+const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, webFetchTool, webBrowserTool];
 
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
