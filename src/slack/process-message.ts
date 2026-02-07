@@ -17,6 +17,9 @@ import { updateKnowledgeTool } from '../tools/update-knowledge.js';
 import { getProjectContextTool } from '../tools/get-project-context.js';
 import { createPostRichMessageTool } from '../tools/post-rich-message.js';
 import { createFileEditTool } from '../tools/file-edit.js';
+import { createUploadFileTool } from '../tools/upload-file.js';
+import { createScheduleTaskTool } from '../tools/schedule-task.js';
+import { getScheduler } from '../scheduler/index.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
 import { loadKnowledge } from '../memory/knowledge.js';
@@ -134,6 +137,11 @@ export async function processMessage(
     onNewMessage: onNewRichMessage,
   });
   const fileEditTool = createFileEditTool(client, { channel_id: channelId, getThreadTs: getProgressTs });
+  const uploadFileTool = createUploadFileTool(client, { channel_id: channelId });
+  const scheduleTaskTool = createScheduleTaskTool(getScheduler(), {
+    channel_id: channelId,
+    user_id: userId,
+  });
 
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
@@ -144,6 +152,8 @@ export async function processMessage(
     getProjectContextTool,
     richMessageTool,
     fileEditTool,
+    uploadFileTool,
+    scheduleTaskTool,
   ]);
 
   const knowledge = loadKnowledge();

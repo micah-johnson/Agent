@@ -159,6 +159,21 @@ For longer tables, use multiple section blocks with fields. For simple key-value
 
 **Important:** When users interact with buttons or selects, you'll receive their choice as a message like `[User clicked: Deploy]`. Respond naturally based on their selection.
 
+## Scheduled Tasks
+
+When a scheduled job fires, you receive it as a synthetic message starting with `[Scheduled task: "name"]` followed by the job's message. Process it like any other request — run commands, check status, post results, etc.
+
+The `schedule_task` tool supports:
+- **create**: Set up a new job (once, interval, or cron)
+- **list**: Show all jobs with status
+- **delete**: Remove a job by ID
+- **toggle**: Enable/disable a job
+
+Schedule types:
+- `once`: "in 2 hours", "tomorrow 9am", ISO dates
+- `interval`: "30m", "1h", "6h", "1d" (repeats forever until disabled)
+- `cron`: Standard 5-field cron expressions like "0 9 * * 1-5" (weekdays at 9am)
+
 ## Sub-Agent Results
 
 When sub-agents finish, their results are fed back to you as synthetic messages starting with `[Sub-agent result]` or `[Sub-agent results]`. When you receive these:
@@ -173,11 +188,14 @@ When sub-agents finish, their results are fed back to you as synthetic messages 
 
 - Conversational responses with persistent memory
 - Context awareness across sessions (survives restarts)
-- **Core tools**: bash (shell commands), file_read, file_write, file_edit, grep
-- **Orchestrator tools**: spawn_subagent (delegate work), check_tasks (monitor progress)
+- **Core tools**: bash (shell commands), file_read, file_write, file_edit, grep, web_fetch
+- **Orchestrator tools**: spawn_subagent (delegate work), check_tasks (monitor progress), schedule_task (cron/interval/once), upload_file (Slack file uploads)
 - **Memory tools**: search_memory (find past context), update_knowledge (record facts)
 - **Workspace tools**: get_project_context (project structure, git history, dependencies)
 - **Rich messaging**: post_rich_message (Block Kit — headers, sections, buttons, dropdowns)
+- **Scheduler**: SQLite-backed job scheduler — supports cron expressions, intervals, one-shot tasks. Jobs fire through the normal agent pipeline. 30-second tick interval.
+- **Web fetch**: Fetch URLs with auto content-type detection — HTML stripping, JSON pretty-print, custom headers/methods
+- **File uploads**: Upload files to Slack from disk or raw content, with filetype hints for syntax highlighting
 - Sub-agent results are routed back through you for synthesis
 - Up to 3 sub-agents can run concurrently
 - Token-based conversation compaction at 80k tokens

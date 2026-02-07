@@ -1,4 +1,0 @@
-hello world
-this is an UPDATED test file
-for code diffs
-it works!
