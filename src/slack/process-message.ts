@@ -20,6 +20,7 @@ import { createFileEditTool } from '../tools/file-edit.js';
 import { createUploadFileTool } from '../tools/upload-file.js';
 import { createScheduleTaskTool } from '../tools/schedule-task.js';
 import { createSelfRestartTool } from '../tools/self-restart.js';
+import { createCanvasTool } from '../tools/canvas.js';
 import { getScheduler } from '../scheduler/index.js';
 import { getProcessManager } from '../processes/manager.js';
 import { MCPManager } from '../mcp/manager.js';
@@ -144,6 +145,7 @@ export async function processMessage(
     user_id: userId,
   });
   const selfRestartTool = createSelfRestartTool({ channel_id: channelId, user_id: userId });
+  const canvasTool = createCanvasTool(client, { channel_id: channelId });
 
   const mcpTools = MCPManager.getInstance().getAllTools();
   const tools = ToolRegistry.forOrchestrator([
@@ -158,6 +160,7 @@ export async function processMessage(
     uploadFileTool,
     scheduleTaskTool,
     selfRestartTool,
+    canvasTool,
   ], mcpTools);
 
   const knowledge = loadKnowledge();

@@ -184,6 +184,34 @@ When sub-agents finish, their results are fed back to you as synthetic messages 
 - Note any failures clearly but don't panic — explain what went wrong and suggest next steps
 - Keep it concise — the raw result may be long, but the user wants the highlights
 
+## Canvases (`canvas`)
+
+Use the `canvas` tool to create rich, persistent documents in Slack — like Anthropic's Artifacts. Canvases are better than chat messages for long-form content: plans, reports, analyses, documentation, checklists.
+
+**When to use canvases vs chat:**
+- Plans, proposals, reports, documentation → *canvas*
+- Multi-step checklists or project trackers → *canvas*
+- Code reviews or architecture docs → *canvas*
+- Quick answers, status updates, confirmations → *chat message*
+- Structured but short content → *post_rich_message*
+
+**Actions:**
+- `create` — make a new canvas with title + markdown content. Auto-shares link in chat.
+- `edit` — modify an existing canvas (replace content, insert sections, rename, delete sections)
+- `delete` — delete a canvas entirely
+- `lookup_sections` — find section IDs for targeted edits
+
+**Content is standard markdown** (not Slack mrkdwn): `**bold**`, `*italic*`, `# headings`, `| tables |`, `` `code` ``, `- [ ] checklists`, etc.
+
+**Example — creating a project plan:**
+```json
+{
+  "action": "create",
+  "title": "Q1 Migration Plan",
+  "markdown": "# Q1 Migration Plan\n\n## Goals\n- Migrate all services to K8s\n- Zero downtime\n\n## Timeline\n| Week | Task | Owner |\n|------|------|-------|\n| 1 | Audit services | @eng |\n| 2-3 | Containerize | @platform |\n\n## Checklist\n- [ ] Service inventory\n- [ ] Docker configs\n- [ ] CI/CD pipeline"
+}
+```
+
 ## Current Capabilities (Phase 5)
 
 - Conversational responses with persistent memory
@@ -193,6 +221,7 @@ When sub-agents finish, their results are fed back to you as synthetic messages 
 - **Memory tools**: search_memory (find past context), update_knowledge (record facts)
 - **Workspace tools**: get_project_context (project structure, git history, dependencies)
 - **Rich messaging**: post_rich_message (Block Kit — headers, sections, buttons, dropdowns)
+- **Canvases**: canvas (create/edit rich documents — plans, reports, docs)
 - **Scheduler**: SQLite-backed job scheduler — supports cron expressions, intervals, one-shot tasks. Jobs fire through the normal agent pipeline. 30-second tick interval.
 - **Web fetch**: Fetch URLs with auto content-type detection — HTML stripping, JSON pretty-print, custom headers/methods
 - **File uploads**: Upload files to Slack from disk or raw content, with filetype hints for syntax highlighting
