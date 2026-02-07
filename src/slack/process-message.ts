@@ -11,6 +11,7 @@ import { Orchestrator } from '../orchestrator/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createSpawnSubagentTool } from '../tools/spawn-subagent.js';
 import { createCheckTasksTool } from '../tools/check-tasks.js';
+import { createCancelTaskTool } from '../tools/cancel-task.js';
 import { searchMemoryTool } from '../tools/search-memory.js';
 import { updateKnowledgeTool } from '../tools/update-knowledge.js';
 import { getProjectContextTool } from '../tools/get-project-context.js';
@@ -109,7 +110,9 @@ export async function processMessage(
   onNewRichMessage?: (ts: string, blocks: any[]) => void,
   signal?: AbortSignal,
 ): Promise<ProcessMessageResult> {
+  const t0 = Date.now();
   const checkTasksTool = createCheckTasksTool(orchestrator);
+  const cancelTaskTool = createCancelTaskTool(orchestrator);
 
   const spawnTool = createSpawnSubagentTool(orchestrator, {
     channel_id: channelId,
@@ -123,6 +126,7 @@ export async function processMessage(
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
     checkTasksTool,
+    cancelTaskTool,
     searchMemoryTool,
     updateKnowledgeTool,
     getProjectContextTool,
@@ -138,7 +142,7 @@ export async function processMessage(
 
   const history = conversationStore.load(channelId);
 
-  log(`Processing: "${userMessage}" (history: ${history.length} messages)`);
+  log(`Processing: "${userMessage}" (history: ${history.length} messages, setup: ${Date.now() - t0}ms)`);
   let response;
   try {
     response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal);
@@ -149,6 +153,7 @@ export async function processMessage(
     response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal);
   }
   log(`Response: ${response.text?.substring(0, 100)}`);
+  log(`Tokens: ${response.usage.inputTokens} in, ${response.usage.outputTokens} out, ${response.usage.cacheReadTokens} cache-read, ${response.usage.cacheWriteTokens} cache-write`);
 
   // Persist conversation history (async, don't block response)
   queueMicrotask(() => conversationStore.save(channelId, response.messages));

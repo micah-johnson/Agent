@@ -94,7 +94,7 @@ export function setupActionHandlers(
     await orchestrator.withChannelLock(channelId, async () => {
       const progress = new ProgressUpdater(channelId, client);
       try {
-        await progress.postInitial();
+        progress.postInitial(); // Non-blocking
 
         const result = await processMessage(
           channelId,

@@ -30,6 +30,7 @@ export interface WorkerResult {
 export async function runSubAgent(
   task: Task,
   apiKey: string,
+  signal?: AbortSignal,
 ): Promise<WorkerResult> {
   const tools = ToolRegistry.forSubAgent();
   const model = getModel('anthropic', task.model as any);
@@ -40,6 +41,7 @@ export async function runSubAgent(
     systemPrompt: SUB_AGENT_SYSTEM_PROMPT,
     tools,
     reasoning: 'high',
+    signal,
   });
 
   return {

@@ -6,6 +6,7 @@ import { setupActionHandlers } from './slack/actions.js';
 import { loadProjects } from './workspace/registry.js';
 import { indexAllProjects } from './workspace/indexer.js';
 import { startWatching, stopWatching } from './workspace/watcher.js';
+import { getDb } from './db/sqlite.js';
 
 // Catch unhandled rejections so they don't silently kill the process
 process.on('unhandledRejection', (error) => {
@@ -24,6 +25,10 @@ async function main() {
     missingEnvVars.forEach(key => console.error(`   - ${key}`));
     process.exit(1);
   }
+
+  // Eagerly initialize SQLite + sqlite-vec so first message isn't slow
+  getDb();
+  console.log('✓ Database ready');
 
   // Initialize Claude client (reads ANTHROPIC_API_KEY from .env)
   const claude = new ClaudeClient();

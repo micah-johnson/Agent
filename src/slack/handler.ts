@@ -59,12 +59,14 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
     }
 
     await orchestrator.withChannelLock(channelId, async () => {
+      const t0 = Date.now();
       const signal = orchestrator.createAbortSignal(channelId);
       const progress = new ProgressUpdater(channelId, client);
       orchestrator.setActiveProgress(channelId, progress);
 
       try {
-        await progress.postInitial();
+        progress.postInitial(); // Non-blocking — Slack API call runs in parallel with Claude
+        log(`postInitial fired (non-blocking) at ${Date.now() - t0}ms`);
 
         const result = await processMessage(
           channelId,

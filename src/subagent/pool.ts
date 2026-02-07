@@ -4,6 +4,9 @@
  * submit() is fire-and-forget. Tasks run immediately if under the
  * concurrency limit, otherwise they queue. On completion, the next
  * queued task is drained automatically.
+ *
+ * cancelByChannel() aborts all running tasks and removes queued tasks
+ * for a given channel, enabling the stop command to kill sub-agents.
  */
 
 import { EventEmitter } from 'events';
@@ -15,6 +18,7 @@ const MAX_CONCURRENCY = 3;
 
 export class WorkerPool extends EventEmitter {
   private running: Map<string, Promise<void>> = new Map();
+  private abortControllers: Map<string, AbortController> = new Map();
   private queue: Task[] = [];
   private store: TaskStore;
   private apiKey: string;
@@ -33,20 +37,81 @@ export class WorkerPool extends EventEmitter {
     }
   }
 
+  /**
+   * Cancel a specific task by ID. Returns true if found and cancelled.
+   */
+  cancelTask(taskId: string): boolean {
+    // Check running tasks
+    const controller = this.abortControllers.get(taskId);
+    if (controller) {
+      controller.abort();
+      this.store.markFailed(taskId, 'Cancelled');
+      return true;
+    }
+
+    // Check queued tasks
+    const idx = this.queue.findIndex((t) => t.id === taskId);
+    if (idx !== -1) {
+      this.queue.splice(idx, 1);
+      this.store.markFailed(taskId, 'Cancelled');
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Cancel all running and queued tasks for a channel.
+   * Returns the number of tasks cancelled.
+   */
+  cancelByChannel(channelId: string): number {
+    let cancelled = 0;
+
+    // Abort running tasks for this channel
+    for (const [taskId, controller] of this.abortControllers) {
+      const task = this.store.get(taskId);
+      if (task && task.channel_id === channelId) {
+        controller.abort();
+        this.store.markFailed(taskId, 'Cancelled by user');
+        cancelled++;
+      }
+    }
+
+    // Remove queued tasks for this channel
+    const before = this.queue.length;
+    this.queue = this.queue.filter((task) => {
+      if (task.channel_id === channelId) {
+        this.store.markFailed(task.id, 'Cancelled by user');
+        cancelled++;
+        return false;
+      }
+      return true;
+    });
+
+    return cancelled;
+  }
+
   private run(task: Task): void {
     this.store.markRunning(task.id);
 
-    const promise = this.execute(task).finally(() => {
+    const controller = new AbortController();
+    this.abortControllers.set(task.id, controller);
+
+    const promise = this.execute(task, controller.signal).finally(() => {
       this.running.delete(task.id);
+      this.abortControllers.delete(task.id);
       this.drain();
     });
 
     this.running.set(task.id, promise);
   }
 
-  private async execute(task: Task): Promise<void> {
+  private async execute(task: Task, signal: AbortSignal): Promise<void> {
     try {
-      const result = await runSubAgent(task, this.apiKey);
+      const result = await runSubAgent(task, this.apiKey, signal);
+
+      // Don't mark completed if aborted — cancelByChannel already marked it failed
+      if (signal.aborted) return;
 
       this.store.markCompleted(task.id, result.text, {
         iterations: result.iterations,
@@ -55,6 +120,8 @@ export class WorkerPool extends EventEmitter {
 
       this.emit('task:complete', task.id);
     } catch (error: unknown) {
+      if (signal.aborted) return;
+
       const msg = error instanceof Error ? error.message : String(error);
       this.store.markFailed(task.id, msg);
       this.emit('task:complete', task.id);

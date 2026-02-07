@@ -88,21 +88,36 @@ export class Orchestrator {
    * Returns true if there was something to abort.
    */
   async abortChannel(channelId: string): Promise<boolean> {
+    let aborted = false;
+
+    // Abort the orchestrator's active work
     const controller = this.activeAbort.get(channelId);
     if (controller) {
       controller.abort();
       this.activeAbort.delete(channelId);
 
-      // Immediately update the progress message
       const progress = this.activeProgress.get(channelId);
       if (progress) {
         await progress.abort('Aborted');
         this.activeProgress.delete(channelId);
       }
 
-      return true;
+      aborted = true;
     }
-    return false;
+
+    // Cancel any running or queued sub-agents for this channel
+    const cancelledSubAgents = this.pool.cancelByChannel(channelId);
+    if (cancelledSubAgents > 0) aborted = true;
+
+    // Clear any pending debounced results for this channel
+    const timer = this.debounceTimers.get(channelId);
+    if (timer) {
+      clearTimeout(timer);
+      this.debounceTimers.delete(channelId);
+    }
+    this.pendingResults.delete(channelId);
+
+    return aborted;
   }
 
   /**
@@ -183,7 +198,7 @@ export class Orchestrator {
       const progress = new ProgressUpdater(channelId, client);
       this.setActiveProgress(channelId, progress);
       try {
-        await progress.postInitial();
+        progress.postInitial(); // Non-blocking
 
         const result = await processMessage(
           channelId,

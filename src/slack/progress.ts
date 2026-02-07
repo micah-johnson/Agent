@@ -7,9 +7,15 @@
  * moves to that message and the old progress-only message is deleted.
  *
  * Status circles:
- *   ⚫ thinking  🟠 running  🟢 success  🔴 error
+ *   🟠 running  🟢 success  🔴 error
  *
  * Throttled to max one Slack update per 1.5s.
+ *
+ * postInitial() is non-blocking — the Slack API call fires in the
+ * background so the Claude API call can start immediately. finalize()
+ * awaits the initial message to complete, then uses the fast chat.update
+ * path. A `disposed` flag prevents zombie heartbeats from late-resolving
+ * postInitial.
  */
 
 import type { WebClient } from '@slack/web-api';
@@ -30,8 +36,10 @@ export class ProgressUpdater {
   private channelId: string;
   private client: WebClient;
   private messageTs: string | null = null;
+  private messageReady: Promise<void> | null = null;
   private baseBlocks: any[] = [];
   private richContentActive = false;
+  private disposed = false;
   private lastUpdateTime = 0;
   private pendingEvent: ProgressEvent | null = null;
   private lastEvent: ProgressEvent = { phase: 'thinking', iteration: 1 };
@@ -47,21 +55,36 @@ export class ProgressUpdater {
     this.startTime = Date.now();
   }
 
-  async postInitial(): Promise<string> {
-    const result = await this.client.chat.postMessage({
-      channel: this.channelId,
-      blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }],
-      text: 'Thinking...',
-    });
-    this.messageTs = result.ts!;
-    this.lastUpdateTime = Date.now();
-    this.startHeartbeat();
-    return this.messageTs;
+  /**
+   * Fire the initial "Thinking..." message to Slack.
+   * Non-blocking — returns immediately while the API call runs in the background.
+   */
+  postInitial(): void {
+    this.messageReady = this.client.chat
+      .postMessage({
+        channel: this.channelId,
+        blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }],
+        text: 'Thinking...',
+      })
+      .then((result) => {
+        this.messageTs = result.ts!;
+        this.lastUpdateTime = Date.now();
+        // Only start heartbeat if we haven't been disposed
+        if (!this.disposed) {
+          this.startHeartbeat();
+          if (this.pendingEvent) {
+            this.flush();
+          }
+        }
+      })
+      .catch(() => {
+        // If initial post fails, subsequent updates will no-op
+      });
   }
 
   private startHeartbeat(): void {
     this.heartbeat = setInterval(() => {
-      if (this.messageTs) {
+      if (this.messageTs && !this.disposed) {
         this.lastUpdateTime = 0;
         this.pendingEvent = this.lastEvent;
         this.flush();
@@ -73,6 +96,15 @@ export class ProgressUpdater {
     if (this.heartbeat) {
       clearInterval(this.heartbeat);
       this.heartbeat = null;
+    }
+  }
+
+  private dispose(): void {
+    this.disposed = true;
+    this.stopHeartbeat();
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
   }
 
@@ -88,13 +120,14 @@ export class ProgressUpdater {
     this.baseBlocks = blocks;
     this.richContentActive = true;
 
-    // Delete old progress-only message (don't delete rich content)
     if (oldTs && !wasRichContent) {
       this.client.chat.delete({ channel: this.channelId, ts: oldTs }).catch(() => {});
     }
   }
 
   onProgress(event: ProgressEvent): void {
+    if (this.disposed) return;
+
     if (event.phase === 'tools_start' && event.tools) {
       this.currentTools = event.tools;
     }
@@ -116,54 +149,48 @@ export class ProgressUpdater {
   }
 
   async finalize(text: string, toolCalls: number, usage: AgentLoopUsage): Promise<void> {
-    this.stopHeartbeat();
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (!this.messageTs) return;
+    this.dispose();
 
     const durationMs = Date.now() - this.startTime;
     const footer = buildMetadataFooter(durationMs, toolCalls, usage);
 
-    if (this.richContentActive) {
-      // Rich content is already displayed — just add footer
+    // Wait for the initial message to be posted (reuses the HTTPS connection)
+    if (this.messageReady) await this.messageReady;
+
+    const blocks = this.richContentActive
+      ? [...this.baseBlocks, footer]
+      : [{ type: 'section', text: { type: 'mrkdwn', text } }, footer];
+
+    if (this.messageTs) {
+      // Update is fast — reuses the established connection
       await this.client.chat.update({
         channel: this.channelId,
         ts: this.messageTs,
-        blocks: [...this.baseBlocks, footer],
+        blocks,
         text,
       });
     } else {
-      // Replace progress message with text response + footer
-      await this.client.chat.update({
+      // postInitial failed entirely — post fresh
+      await this.client.chat.postMessage({
         channel: this.channelId,
-        ts: this.messageTs,
-        blocks: [
-          { type: 'section', text: { type: 'mrkdwn', text } },
-          footer,
-        ],
+        blocks,
         text,
       });
     }
   }
 
   async abort(errorText: string): Promise<void> {
-    this.stopHeartbeat();
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (!this.messageTs) return;
+    this.dispose();
 
-    await this.client.chat
-      .update({
-        channel: this.channelId,
-        ts: this.messageTs,
-        blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: errorText }] }],
-        text: errorText,
-      })
-      .catch(() => {});
+    if (this.messageReady) await this.messageReady;
+
+    const blocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: errorText }] }];
+
+    if (this.messageTs) {
+      await this.client.chat
+        .update({ channel: this.channelId, ts: this.messageTs, blocks, text: errorText })
+        .catch(() => {});
+    }
   }
 
   getMessageTs(): string | null {
@@ -173,6 +200,7 @@ export class ProgressUpdater {
   // --- private ---
 
   private scheduleUpdate(): void {
+    if (this.disposed) return;
     const elapsed = Date.now() - this.lastUpdateTime;
     if (elapsed >= MIN_INTERVAL_MS) {
       this.flush();
@@ -180,13 +208,13 @@ export class ProgressUpdater {
       const delay = MIN_INTERVAL_MS - elapsed;
       this.timer = setTimeout(() => {
         this.timer = null;
-        this.flush();
+        if (!this.disposed) this.flush();
       }, delay);
     }
   }
 
   private flush(): void {
-    if (!this.pendingEvent || !this.messageTs) return;
+    if (!this.pendingEvent || !this.messageTs || this.disposed) return;
 
     const event = this.pendingEvent;
     this.pendingEvent = null;
@@ -194,7 +222,6 @@ export class ProgressUpdater {
 
     const progressBlock = this.buildProgressContext(event);
 
-    // Append progress context to base blocks (rich content) or show standalone
     const blocks = this.richContentActive
       ? [...this.baseBlocks, progressBlock]
       : [progressBlock];
@@ -210,15 +237,20 @@ export class ProgressUpdater {
   }
 
   private buildProgressContext(event: ProgressEvent): any {
+    const MAX_VISIBLE = 3;
     const lines: string[] = [];
 
-    // Completed tools
-    for (const tool of this.completed) {
+    const inProgressCount = (event.phase === 'tools_start' && this.currentTools)
+      ? this.currentTools.length
+      : 0;
+
+    const completedSlots = Math.max(0, MAX_VISIBLE - inProgressCount);
+    const recentCompleted = completedSlots > 0 ? this.completed.slice(-completedSlots) : [];
+    for (const tool of recentCompleted) {
       const circle = tool.success ? '\ud83d\udfe2' : '\ud83d\udd34';
       lines.push(`${circle} ${tool.name}(${tool.summary})`);
     }
 
-    // Currently running tools
     if (event.phase === 'tools_start' && this.currentTools) {
       for (const tool of this.currentTools) {
         lines.push(`\ud83d\udfe0 ${tool.name}(${summarizeArgs(tool.name, tool.args)})`);
@@ -230,7 +262,6 @@ export class ProgressUpdater {
 
     let text = lines.join('\n');
 
-    // Overflow protection
     while (text.length > MAX_CONTEXT_LENGTH && lines.length > 2) {
       lines.shift();
       text = ['...', ...lines].join('\n');
@@ -240,9 +271,6 @@ export class ProgressUpdater {
   }
 }
 
-/**
- * Extract the most descriptive argument for a tool call.
- */
 function summarizeArgs(toolName: string, args: Record<string, any>): string {
   let summary = '';
 
@@ -286,6 +314,8 @@ function summarizeArgs(toolName: string, args: Record<string, any>): string {
       summary = typeof firstVal === 'string' ? firstVal : '';
     }
   }
+
+  summary = summary.replace(/\n/g, '\\n');
 
   if (summary.length > 80) {
     summary = summary.substring(0, 77) + '...';

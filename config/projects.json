@@ -1,7 +1,7 @@
 [
   {
     "name": "agent",
-    "path": "/mnt/c/Users/micah/Documents/Cletus",
+    "path": "/mnt/c/Users/micah/Documents/Agent",
     "description": "Personal AI agent — Bun, TypeScript, Slack, Claude",
     "language": "typescript"
   },
