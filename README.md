@@ -1,54 +1,177 @@
 # Agent
 
-Personal AI agent. Lives in Slack. Writes code, runs tasks, remembers everything.
+AI agent that lives in Slack. Runs commands, writes code, manages infrastructure, remembers everything.
 
-## Phase 1: The Loop ✅
+## Features
 
-Basic Slack bot with Claude integration. Receives DMs, calls Claude, responds with conversation history.
+- **Tool use** — bash, file operations, grep, web fetch, headless browser
+- **Sub-agents** — delegate long-running tasks, run work in parallel
+- **Persistent memory** — conversations, knowledge base, semantic search
+- **Workspace awareness** — indexes projects, watches for file changes
+- **MCP client** — connect to any Model Context Protocol server for additional tools
+- **Scheduler** — cron jobs, intervals, one-shot tasks
+- **Rich Slack UI** — Block Kit messages, buttons, dropdowns, file uploads
+- **Approval gates** — optional human-in-the-loop for sensitive operations
 
-## Setup
+## Prerequisites
 
-1. **Install dependencies:**
-   ```bash
-   bun install
-   ```
+- [Bun](https://bun.sh) runtime
+- A [Slack app](https://api.slack.com/apps) with Socket Mode enabled
+- [Anthropic API key](https://console.anthropic.com/settings/keys)
+- [Voyage AI key](https://dash.voyageai.com) (optional, for semantic search)
+- Linux with systemd (for service install — runs anywhere for dev)
 
-2. **Configure environment:**
-   - `.env` file contains Slack credentials
-   - Ensure Slack app is set up with Socket Mode enabled
+## Quick Start
 
-3. **First-time OAuth login:**
-   - On first run, you'll be prompted to authenticate with Claude
-   - Visit the authorization URL in your browser
-   - After authorizing, copy the full redirect URL
-   - Paste it back in the terminal
-   - Credentials are saved to `~/.agent/credentials.json`
+```bash
+git clone https://github.com/your-org/Agent.git
+cd Agent
+bun install
+bun run setup
+```
 
-4. **Run the bot:**
-   ```bash
-   bun dev
-   ```
-
-## Usage
-
-Send a direct message to Agent in Slack. It will:
-- Remember conversation context within the session
-- Respond using Claude Opus 4.6
-- Keep the last 50 messages in history
+The setup wizard walks you through:
+1. Naming your agent
+2. Choosing a workspace directory
+3. Entering Slack credentials
+4. Entering API keys
+5. Configuring authorized users
+6. Installing a systemd service (optional)
 
 ## Architecture
 
+Agent separates **code** from **workspace**:
+
 ```
-You ←→ Agent (Slack DM)
-         ↓
-      Claude Opus
+Agent/                        # Code (this repo)
+  src/                        # Source code
+  templates/                  # Default config templates
+
+~/.agent/                     # Workspace (created by setup)
+  .env                        # Secrets & tokens
+  config/
+    system-prompt.md           # Agent personality & instructions
+    projects.json              # Registered project paths
+    mcp-servers.json           # MCP server connections
+    cli-tools.json             # Available CLI tools
+  data/
+    agent.sqlite               # Conversations, tasks, memory vectors
+    knowledge.md               # Persistent knowledge base
+    settings.json              # Permissions & behavior settings
 ```
 
-## What's Next
+The workspace path is set via `AGENT_WORKSPACE` (defaults to `~/.agent`). Upgrading the agent is just `git pull && bun install` — your workspace is untouched.
 
-- **Phase 2**: Tools (bash, file operations, agent loop)
-- **Phase 3**: Orchestrator + sub-agents (parallel execution)
-- **Phase 4**: Memory (logs, search, knowledge)
-- **Phase 5**: Workspace awareness
-- **Phase 6**: Self-improvement
-- **Phase 7**: Thread support
+## Configuration
+
+### System Prompt
+
+Edit `$WORKSPACE/config/system-prompt.md` to customize your agent's personality, instructions, and behavior. The `{{AGENT_NAME}}` placeholder is replaced with your agent's name at runtime.
+
+### Projects
+
+Register projects in `$WORKSPACE/config/projects.json` so the agent can index and watch them:
+
+```json
+[
+  {
+    "name": "my-api",
+    "path": "/home/user/projects/my-api",
+    "description": "Main API server",
+    "language": "typescript"
+  }
+]
+```
+
+### MCP Servers
+
+Connect external tool servers via `$WORKSPACE/config/mcp-servers.json` (Claude Desktop format):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    }
+  }
+}
+```
+
+MCP tools are automatically discovered and available to the agent and all sub-agents.
+
+### Settings
+
+`$WORKSPACE/data/settings.json` controls permissions and behavior:
+
+```json
+{
+  "permissions": {
+    "defaultPolicy": "deny",
+    "allowedUsers": ["U0XXXXXXXX"]
+  },
+  "toolApproval": {
+    "defaultMode": "bypass"
+  },
+  "messageMode": "steer"
+}
+```
+
+## Running
+
+### Systemd (recommended)
+
+If you installed the service during setup:
+
+```bash
+sudo systemctl start my-agent
+sudo systemctl status my-agent
+sudo journalctl -u my-agent -f
+```
+
+### Manual
+
+```bash
+AGENT_WORKSPACE=~/.agent bun run start
+```
+
+### Dev
+
+```bash
+AGENT_WORKSPACE=~/.agent bun run dev
+```
+
+## Slack App Setup
+
+Your Slack app needs:
+
+**OAuth Scopes (Bot Token):**
+- `chat:write` — send messages
+- `files:write` — upload files
+- `im:history` — read DMs
+- `im:read` — access DM channels
+- `im:write` — open DMs
+- `reactions:read` — read reactions
+- `users:read` — look up user info
+
+**Socket Mode:** enabled (generates the `xapp-` app-level token)
+
+**Event Subscriptions:**
+- `message.im` — receive DMs
+- `message.groups` — receive group messages (optional)
+
+**Interactivity:** enabled (for Block Kit buttons/dropdowns)
+
+## Manual Setup
+
+If you prefer not to use the wizard:
+
+1. Create a workspace directory: `mkdir -p ~/.agent/{config,data}`
+2. Copy templates: `cp templates/* ~/.agent/config/`
+3. Create `.env` (see `.env.example` for reference)
+4. Create `data/settings.json` with your allowed user IDs
+5. Run: `AGENT_WORKSPACE=~/.agent bun run start`
+
+## License
+
+MIT

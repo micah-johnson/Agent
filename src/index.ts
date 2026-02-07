@@ -10,6 +10,7 @@ import { getDb } from './db/sqlite.js';
 import { watchSettings, unwatchSettings, getSettings } from './config/settings.js';
 import { getScheduler } from './scheduler/index.js';
 import { MCPManager } from './mcp/manager.js';
+import { ensureWorkspace } from './workspace/path.js';
 import { readFileSync, unlinkSync, existsSync } from 'fs';
 import { RESTART_MARKER_PATH } from './tools/self-restart.js';
 
@@ -20,6 +21,9 @@ process.on('unhandledRejection', (error) => {
 
 async function main() {
   console.log('🤖 Starting Agent...\n');
+
+  // Ensure workspace directories exist
+  ensureWorkspace();
 
   // Validate Slack environment variables
   const requiredEnvVars = ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'];

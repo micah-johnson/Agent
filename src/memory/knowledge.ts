@@ -7,10 +7,10 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { dataDir, dataPath } from '../workspace/path.js';
 
-const KNOWLEDGE_DIR = join(import.meta.dir, '../../data');
-const KNOWLEDGE_PATH = join(KNOWLEDGE_DIR, 'knowledge.md');
+const KNOWLEDGE_DIR = dataDir();
+const KNOWLEDGE_PATH = dataPath('knowledge.md');
 
 const INITIAL_CONTENT = `# Preferences
 

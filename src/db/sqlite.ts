@@ -6,21 +6,21 @@
 import { Database } from 'bun:sqlite';
 import * as sqliteVec from 'sqlite-vec';
 import { existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
-
-const DB_DIR = join(import.meta.dir, '../../data');
-const DB_PATH = join(DB_DIR, 'agent.sqlite');
+import { dataDir, dataPath } from '../workspace/path.js';
 
 let db: Database | null = null;
 
 export function getDb(): Database {
   if (db) return db;
 
-  if (!existsSync(DB_DIR)) {
-    mkdirSync(DB_DIR, { recursive: true });
+  const dbDir = dataDir();
+  const dbPath = dataPath('agent.sqlite');
+
+  if (!existsSync(dbDir)) {
+    mkdirSync(dbDir, { recursive: true });
   }
 
-  db = new Database(DB_PATH);
+  db = new Database(dbPath);
 
   // Load sqlite-vec extension for vector search
   sqliteVec.load(db);

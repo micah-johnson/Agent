@@ -10,11 +10,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Tool, ToolResult } from '../tools/types.js';
 import { readFileSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { configPath } from '../workspace/path.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = resolve(__dirname, '../../config/mcp-servers.json');
+const CONFIG_PATH = configPath('mcp-servers.json');
 
 interface MCPServerConfig {
   command: string;

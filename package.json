@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
+    "setup": "bun run src/cli/setup.ts",
     "build": "bun build src/index.ts --outdir dist --target node"
   },
   "keywords": ["slack", "ai", "agent", "claude"],

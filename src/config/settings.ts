@@ -6,13 +6,9 @@
  */
 
 import { readFileSync, watchFile, unwatchFile } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { dataPath } from '../workspace/path.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const SETTINGS_PATH = join(__dirname, '../../data/settings.json');
+const SETTINGS_PATH = dataPath('settings.json');
 
 // ── Types ──────────────────────────────────────────────────────────────
 

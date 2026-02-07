@@ -38,11 +38,7 @@ import {
   type ApprovalDecision,
 } from '../tools/approval.js';
 import { readFileSync, appendFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { configPath } from '../workspace/path.js';
 
 // File-based log since console.error doesn't flush reliably inside Bolt event handlers
 export function log(msg: string) {
@@ -51,15 +47,17 @@ export function log(msg: string) {
 }
 
 // Cache system prompt at module level — no reason to read disk per message
-const systemPromptPath = join(__dirname, '../../config/system-prompt.md');
-const baseSystemPrompt = readFileSync(systemPromptPath, 'utf-8');
+const systemPromptFile = configPath('system-prompt.md');
+const agentName = process.env.AGENT_NAME || 'Agent';
+const baseSystemPrompt = readFileSync(systemPromptFile, 'utf-8')
+  .replace(/\{\{AGENT_NAME\}\}/g, agentName);
 
 // Load CLI tools config for system prompt
-const cliToolsPath = join(__dirname, '../../config/cli-tools.json');
+const cliToolsFile = configPath('cli-tools.json');
 let cliToolsPrompt = '';
-if (existsSync(cliToolsPath)) {
+if (existsSync(cliToolsFile)) {
   try {
-    const cliTools = JSON.parse(readFileSync(cliToolsPath, 'utf-8'));
+    const cliTools = JSON.parse(readFileSync(cliToolsFile, 'utf-8'));
     const lines = Object.entries(cliTools).map(([name, info]: [string, any]) => {
       const status = info.available ? 'available' : 'not available';
       const note = info.note ? ` (${info.note})` : '';
