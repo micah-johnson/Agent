@@ -187,13 +187,10 @@ async function handleCreate(
       // Canvas links follow the pattern: https://team.slack.com/docs/{team_id}/{canvas_id}
       const teamId = authResult.team_id;
       const canvasUrl = teamUrl && teamId ? `${teamUrl}/docs/${teamId}/${canvasId}` : undefined;
-      const linkText = canvasUrl
-        ? `📄 *${title || 'Canvas'}*\n<${canvasUrl}|Open Canvas>`
-        : `📄 Canvas created: \`${canvasId}\``;
-
+      // Just post the bare URL — Slack auto-unfurls it into a nice canvas card
       await client.chat.postMessage({
         channel: context.channel_id,
-        text: linkText,
+        text: canvasUrl || `Canvas created: ${canvasId}`,
       });
     } catch {
       // Non-fatal
