@@ -21,6 +21,7 @@ import { createUploadFileTool } from '../tools/upload-file.js';
 import { createScheduleTaskTool } from '../tools/schedule-task.js';
 import { createSelfRestartTool } from '../tools/self-restart.js';
 import { getScheduler } from '../scheduler/index.js';
+import { getProcessManager } from '../processes/manager.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
 import { loadKnowledge } from '../memory/knowledge.js';
@@ -165,6 +166,12 @@ export async function processMessage(
     systemPrompt += `\n\n## Knowledge Base\n\n${knowledge}`;
   }
   systemPrompt += cliToolsPrompt;
+
+  // Inject active background process context
+  const processContext = getProcessManager().getContextSummary();
+  if (processContext) {
+    systemPrompt += '\n\n' + processContext;
+  }
 
   const history = conversationStore.load(channelId);
 
