@@ -9,6 +9,7 @@ import { startWatching, stopWatching } from './workspace/watcher.js';
 import { getDb } from './db/sqlite.js';
 import { watchSettings, unwatchSettings, getSettings } from './config/settings.js';
 import { getScheduler } from './scheduler/index.js';
+import { MCPManager } from './mcp/manager.js';
 import { readFileSync, unlinkSync, existsSync } from 'fs';
 import { RESTART_MARKER_PATH } from './tools/self-restart.js';
 
@@ -46,6 +47,20 @@ async function main() {
   // Initialize orchestrator (creates DB + task store + worker pool)
   const orchestrator = new Orchestrator(claude.getApiKey());
   console.log('✓ Orchestrator initialized');
+
+  // Initialize MCP connections
+  const mcpManager = MCPManager.getInstance();
+  try {
+    await mcpManager.initialize();
+    const mcpTools = mcpManager.getAllTools();
+    if (mcpTools.length > 0) {
+      console.log(`✓ MCP: ${mcpTools.length} tool(s) from ${mcpManager.getStatus().filter(s => s.connected).length} server(s)`);
+    } else {
+      console.log('✓ MCP: no servers configured');
+    }
+  } catch (err: any) {
+    console.error(`⚠️  MCP initialization error: ${err?.message || err}`);
+  }
 
   // Index registered projects and start file watchers
   const projects = loadProjects();
@@ -230,6 +245,7 @@ async function main() {
     console.log('\n🛑 Shutting down...');
     scheduler.stop();
     unwatchSettings();
+    await mcpManager.shutdown();
     await stopWatching();
     await app.stop();
     process.exit(0);

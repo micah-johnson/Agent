@@ -18,7 +18,9 @@
     "chokidar": "^5.0.0",
     "puppeteer": "^24.37.2",
     "sqlite-vec": "^0.1.7-alpha.2",
-    "voyageai": "^0.1.0"
+    "voyageai": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

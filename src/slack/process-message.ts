@@ -22,6 +22,7 @@ import { createScheduleTaskTool } from '../tools/schedule-task.js';
 import { createSelfRestartTool } from '../tools/self-restart.js';
 import { getScheduler } from '../scheduler/index.js';
 import { getProcessManager } from '../processes/manager.js';
+import { MCPManager } from '../mcp/manager.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
 import { loadKnowledge } from '../memory/knowledge.js';
@@ -146,6 +147,7 @@ export async function processMessage(
   });
   const selfRestartTool = createSelfRestartTool({ channel_id: channelId, user_id: userId });
 
+  const mcpTools = MCPManager.getInstance().getAllTools();
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
     checkTasksTool,
@@ -158,7 +160,7 @@ export async function processMessage(
     uploadFileTool,
     scheduleTaskTool,
     selfRestartTool,
-  ]);
+  ], mcpTools);
 
   const knowledge = loadKnowledge();
   let systemPrompt = baseSystemPrompt;
@@ -171,6 +173,13 @@ export async function processMessage(
   const processContext = getProcessManager().getContextSummary();
   if (processContext) {
     systemPrompt += '\n\n' + processContext;
+  }
+
+  // Inject MCP server context
+  if (mcpTools.length > 0) {
+    const mcpStatus = MCPManager.getInstance().getStatus().filter(s => s.connected);
+    const mcpLines = mcpStatus.map(s => `- **${s.server}**: ${s.tools} tools`);
+    systemPrompt += `\n\n## MCP Servers\n\nConnected MCP servers (tools are prefixed \`mcp__{server}__{tool}\`):\n${mcpLines.join('\n')}`;
   }
 
   const history = conversationStore.load(channelId);

@@ -48,13 +48,13 @@ export class ToolRegistry {
   }
 
   /** Sub-agents get execution tools only — no spawning */
-  static forSubAgent(): ToolRegistry {
-    return new ToolRegistry(CORE_TOOLS);
+  static forSubAgent(mcpTools?: Tool[]): ToolRegistry {
+    return new ToolRegistry([...CORE_TOOLS, ...(mcpTools || [])]);
   }
 
-  /** Orchestrator gets core tools + any extra tools (spawn_subagent, check_tasks) */
-  static forOrchestrator(extraTools: Tool[]): ToolRegistry {
-    return new ToolRegistry([...CORE_TOOLS, ...extraTools]);
+  /** Orchestrator gets core tools + MCP tools + any extra tools (spawn_subagent, check_tasks) */
+  static forOrchestrator(extraTools: Tool[], mcpTools?: Tool[]): ToolRegistry {
+    return new ToolRegistry([...CORE_TOOLS, ...(mcpTools || []), ...extraTools]);
   }
 }
 

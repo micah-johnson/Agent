@@ -8,6 +8,7 @@
 import { getModel } from '@mariozechner/pi-ai';
 import { runAgentLoop } from '../agent/loop.js';
 import { ToolRegistry } from '../tools/registry.js';
+import { MCPManager } from '../mcp/manager.js';
 import type { Task } from '../tasks/store.js';
 
 const SUB_AGENT_SYSTEM_PROMPT = `You are a task worker for Agent, a personal AI agent.
@@ -32,7 +33,8 @@ export async function runSubAgent(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<WorkerResult> {
-  const tools = ToolRegistry.forSubAgent();
+  const mcpTools = MCPManager.getInstance().getAllTools();
+  const tools = ToolRegistry.forSubAgent(mcpTools);
   const model = getModel('anthropic', task.model as any);
 
   const result = await runAgentLoop(task.prompt, {
