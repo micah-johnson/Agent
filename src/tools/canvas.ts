@@ -184,8 +184,9 @@ async function handleCreate(
       const authResult = await client.auth.test() as any;
       const teamUrl = authResult.url?.replace(/\/$/, ''); // e.g. https://team.slack.com
 
-      // Canvas links follow the pattern: https://team.slack.com/docs/{canvas_id}
-      const canvasUrl = teamUrl ? `${teamUrl}/docs/${canvasId}` : undefined;
+      // Canvas links follow the pattern: https://team.slack.com/docs/{team_id}/{canvas_id}
+      const teamId = authResult.team_id;
+      const canvasUrl = teamUrl && teamId ? `${teamUrl}/docs/${teamId}/${canvasId}` : undefined;
       const linkText = canvasUrl
         ? `📄 *${title || 'Canvas'}*\n<${canvasUrl}|Open Canvas>`
         : `📄 Canvas created: \`${canvasId}\``;
