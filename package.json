@@ -16,6 +16,7 @@
     "@mariozechner/pi-ai": "^0.52.6",
     "@slack/bolt": "^4.2.0",
     "chokidar": "^5.0.0",
+    "puppeteer": "^24.37.2",
     "sqlite-vec": "^0.1.7-alpha.2",
     "voyageai": "^0.1.0"
   },

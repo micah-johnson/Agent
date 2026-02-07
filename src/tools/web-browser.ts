@@ -60,18 +60,20 @@ function getSession(sessionId: string): BrowserSession | ToolResult {
  */
 async function listClickableElements(page: Page, max = 10): Promise<string> {
   try {
-    const elements = await page.evaluate((limit: number) => {
-      const selectors = Array.from(document.querySelectorAll('a, button, input, select, textarea, [role="button"], [onclick]'));
-      return selectors.slice(0, limit).map(el => {
-        const tag = el.tagName.toLowerCase();
-        const id = el.id ? `#${el.id}` : '';
-        const cls = el.className && typeof el.className === 'string'
-          ? '.' + el.className.trim().split(/\s+/).join('.')
-          : '';
-        const text = (el.textContent || '').trim().substring(0, 40);
-        return `  ${tag}${id}${cls} — "${text}"`;
-      });
-    }, max);
+    const elements: string[] = await page.evaluate(`
+      (() => {
+        const selectors = Array.from(document.querySelectorAll('a, button, input, select, textarea, [role="button"], [onclick]'));
+        return selectors.slice(0, ${max}).map(el => {
+          const tag = el.tagName.toLowerCase();
+          const id = el.id ? '#' + el.id : '';
+          const cls = el.className && typeof el.className === 'string'
+            ? '.' + el.className.trim().split(/\\s+/).join('.')
+            : '';
+          const text = (el.textContent || '').trim().substring(0, 40);
+          return '  ' + tag + id + cls + ' — "' + text + '"';
+        });
+      })()
+    `) as string[];
     return elements.length > 0
       ? `\nClickable elements on page:\n${elements.join('\n')}`
       : '\nNo clickable elements found on page.';
@@ -222,7 +224,7 @@ async function handleNavigate(input: ToolInput): Promise<ToolResult> {
     // Get a brief text summary
     let textSummary = '';
     try {
-      const bodyText = await session.page.evaluate(() => document.body?.innerText || '');
+      const bodyText = await session.page.evaluate(`document.body ? document.body.innerText : ''`) as string;
       textSummary = bodyText.substring(0, 2000).trim();
     } catch { /* ignore */ }
 
@@ -404,14 +406,11 @@ async function handleScroll(input: ToolInput): Promise<ToolResult> {
 
   try {
     const scrollY = direction === 'down' ? amount : -amount;
-    await session.page.evaluate((y: number) => window.scrollBy(0, y), scrollY);
+    await session.page.evaluate(`window.scrollBy(0, ${scrollY})`);
 
-    const scrollPos = await session.page.evaluate(() => ({
-      x: window.scrollX,
-      y: window.scrollY,
-      height: document.documentElement.scrollHeight,
-      viewportHeight: window.innerHeight,
-    }));
+    const scrollPos = await session.page.evaluate(`
+      ({ x: window.scrollX, y: window.scrollY, height: document.documentElement.scrollHeight, viewportHeight: window.innerHeight })
+    `) as { x: number; y: number; height: number; viewportHeight: number };
 
     return {
       success: true,
