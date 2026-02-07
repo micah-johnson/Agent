@@ -151,17 +151,73 @@ async function main() {
     console.error('⚠️  Slack auth test failed:', error);
   }
 
-  // Check for restart marker — if we were restarted via self_restart, notify the user
+  // Check for restart marker — if we were restarted via self_restart, route through agent pipeline
   try {
     if (existsSync(RESTART_MARKER_PATH)) {
       const marker = JSON.parse(readFileSync(RESTART_MARKER_PATH, 'utf-8'));
       unlinkSync(RESTART_MARKER_PATH);
-      const resumeMsg = `✅ I'm back online.${marker.reason && marker.reason !== 'No reason specified' ? ` Restarted for: _${marker.reason}_` : ''}`;
-      await app.client.chat.postMessage({
-        channel: marker.channel_id,
-        text: resumeMsg,
-      });
-      console.log(`✓ Posted restart resume to ${marker.channel_id}`);
+      console.log(`✓ Restart marker found — resuming in ${marker.channel_id}`);
+
+      // Fire through the normal agent pipeline (async, don't block startup)
+      (async () => {
+        const { processMessage, log } = await import('./slack/process-message.js');
+        const { ProgressUpdater } = await import('./slack/progress.js');
+
+        const reasonNote = marker.reason && marker.reason !== 'No reason specified'
+          ? ` Reason: ${marker.reason}`
+          : '';
+        const syntheticMessage = `[Restart resume]${reasonNote}\nYou just restarted successfully. Resume the conversation — check context for what you were doing before the restart and continue if there's pending work, otherwise just confirm you're back.`;
+
+        orchestrator.withChannelLock(marker.channel_id, async () => {
+          const signal = orchestrator.createAbortSignal(marker.channel_id);
+          const progressRef = { current: new ProgressUpdater(marker.channel_id, app.client) };
+          orchestrator.setActiveProgress(marker.channel_id, progressRef.current);
+          try {
+            progressRef.current.postInitial();
+
+            const steer = {
+              consume: () => orchestrator.consumeSteer(marker.channel_id),
+              registerCallAbort: (controller: AbortController) =>
+                orchestrator.registerCallAbort(marker.channel_id, controller),
+              clearCallAbort: () => orchestrator.clearCallAbort(marker.channel_id),
+              onSteer: (message: string) => {
+                const oldProgress = progressRef.current;
+                oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+                const newProgress = new ProgressUpdater(marker.channel_id, app.client);
+                newProgress.postInitial();
+                progressRef.current = newProgress;
+                orchestrator.setActiveProgress(marker.channel_id, newProgress);
+              },
+            };
+
+            const result = await processMessage(
+              marker.channel_id,
+              marker.user_id || 'system',
+              syntheticMessage,
+              app.client,
+              claude,
+              orchestrator,
+              (event) => progressRef.current.onProgress(event),
+              (ts, blocks) => progressRef.current.adoptMessage(ts, blocks),
+              signal,
+              undefined,
+              () => progressRef.current.getMessageTs(),
+              steer,
+            );
+
+            if (!signal.aborted) {
+              await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
+            }
+          } catch (err: any) {
+            if (!signal.aborted) {
+              log(`[restart-resume] Failed: ${err?.message || err}`);
+              await progressRef.current.abort('Restart resume failed.');
+            }
+          } finally {
+            orchestrator.clearAbortSignal(marker.channel_id);
+          }
+        });
+      })();
     }
   } catch (err) {
     console.error('⚠️  Failed to process restart marker:', err);

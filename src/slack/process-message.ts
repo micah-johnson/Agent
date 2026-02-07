@@ -143,7 +143,7 @@ export async function processMessage(
     channel_id: channelId,
     user_id: userId,
   });
-  const selfRestartTool = createSelfRestartTool({ channel_id: channelId });
+  const selfRestartTool = createSelfRestartTool({ channel_id: channelId, user_id: userId });
 
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,

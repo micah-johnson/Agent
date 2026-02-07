@@ -6,7 +6,7 @@ export const RESTART_MARKER_PATH = '/tmp/agent-restart.json';
 /**
  * Create a factory so we can inject channel_id at registration time.
  */
-export function createSelfRestartTool(context: { channel_id: string }): Tool {
+export function createSelfRestartTool(context: { channel_id: string; user_id?: string }): Tool {
   return {
     name: 'self_restart',
     description:
@@ -39,6 +39,7 @@ export function createSelfRestartTool(context: { channel_id: string }): Tool {
           RESTART_MARKER_PATH,
           JSON.stringify({
             channel_id: context.channel_id,
+            user_id: context.user_id,
             reason,
             timestamp,
           }),
