@@ -9,7 +9,7 @@ import type { Tool, ToolInput, ToolResult } from './types.js';
 
 const execAsync = promisify(exec);
 
-const DEFAULT_TIMEOUT = 120000; // 2 minutes
+const DEFAULT_TIMEOUT = 300000; // 5 minutes
 const MAX_OUTPUT_LENGTH = 100000; // 100KB
 
 export const bashTool: Tool = {
@@ -26,6 +26,10 @@ export const bashTool: Tool = {
         type: 'string',
         description: 'Optional working directory for the command',
       },
+      timeout: {
+        type: 'number',
+        description: 'Optional timeout in milliseconds. Default: 300000 (5 minutes)',
+      },
     },
     required: ['command'],
   },
@@ -33,6 +37,7 @@ export const bashTool: Tool = {
   async execute(input: ToolInput): Promise<ToolResult> {
     const command = input.command as string;
     const workingDirectory = input.working_directory as string | undefined;
+    const timeout = (input.timeout as number | undefined) || DEFAULT_TIMEOUT;
 
     if (!command || command.trim() === '') {
       return {
@@ -44,7 +49,7 @@ export const bashTool: Tool = {
     try {
       const { stdout, stderr } = await execAsync(command, {
         cwd: workingDirectory || process.cwd(),
-        timeout: DEFAULT_TIMEOUT,
+        timeout: timeout,
         maxBuffer: MAX_OUTPUT_LENGTH,
         shell: '/bin/bash',
       });
@@ -63,6 +68,14 @@ export const bashTool: Tool = {
         output: output || '(command completed with no output)',
       };
     } catch (error: any) {
+      // Detect timeout — killed processes get SIGTERM
+      if (error.killed) {
+        return {
+          success: false,
+          error: `Command timed out after ${timeout / 1000}s and was killed. Consider increasing the timeout or breaking the command into smaller steps.`,
+        };
+      }
+
       // exec throws on non-zero exit code
       const errorOutput = error.stdout || error.stderr || error.message;
 

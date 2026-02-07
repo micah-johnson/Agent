@@ -8,7 +8,15 @@
 import { getDb } from '../db/sqlite.js';
 import { embed } from './embeddings.js';
 
-const MIN_CONTENT_LENGTH = 10;
+const MIN_CONTENT_LENGTH = 50;
+const MIN_EMBED_LENGTH = 100; // Only generate vectors for substantial content
+
+// Skip patterns — messages matching these aren't worth indexing
+const NOISE_PATTERNS = [
+  /^(hi|hey|hello|yo|sup|thanks|thank you|ok|okay|sure|yep|yes|no|nope|cool|nice|great|got it|sounds good|perfect|done|on it)\b/i,
+  /^\[User clicked:/,  // Button interactions
+  /^(testing|test|ignore this)/i,
+];
 
 export interface IndexEntry {
   role: string;
@@ -24,7 +32,12 @@ export async function indexMessages(
   sourceId: string,
   entries: IndexEntry[],
 ): Promise<void> {
-  const valid = entries.filter((e) => e.content.trim().length >= MIN_CONTENT_LENGTH);
+  const valid = entries.filter((e) => {
+    const content = e.content.trim();
+    if (content.length < MIN_CONTENT_LENGTH) return false;
+    if (NOISE_PATTERNS.some(pattern => pattern.test(content))) return false;
+    return true;
+  });
   if (valid.length === 0) return;
 
   const db = getDb();
@@ -54,17 +67,24 @@ export async function indexMessages(
     insertFts.run(id, entry.content, source, sourceId, entry.role);
   }
 
-  // Generate embeddings and insert into memory_vec (async)
-  try {
-    const texts = valid.map((e) => e.content);
-    const embeddings = await embed(texts);
+  // Generate embeddings only for substantial content (save API credits)
+  const embeddable = valid.filter(e => e.content.trim().length >= MIN_EMBED_LENGTH);
+  if (embeddable.length > 0) {
+    try {
+      const texts = embeddable.map((e) => e.content);
+      const embeddings = await embed(texts);
 
-    for (let i = 0; i < entryIds.length; i++) {
-      const vec = new Float32Array(embeddings[i]);
-      insertVec.run(entryIds[i], vec);
+      // Map embeddable entries back to their IDs
+      const embeddableIndices = valid
+        .map((e, i) => ({ entry: e, id: entryIds[i] }))
+        .filter(({ entry }) => entry.content.trim().length >= MIN_EMBED_LENGTH);
+
+      for (let i = 0; i < embeddableIndices.length; i++) {
+        const vec = new Float32Array(embeddings[i]);
+        insertVec.run(embeddableIndices[i].id, vec);
+      }
+    } catch (err: any) {
+      console.error(`[indexer] Vector embedding failed: ${err?.message || err}`);
     }
-  } catch (err: any) {
-    // Log but don't fail — FTS5 search still works without vectors
-    console.error(`[indexer] Vector embedding failed: ${err?.message || err}`);
   }
 }

@@ -7,6 +7,7 @@ import { loadProjects } from './workspace/registry.js';
 import { indexAllProjects } from './workspace/indexer.js';
 import { startWatching, stopWatching } from './workspace/watcher.js';
 import { getDb } from './db/sqlite.js';
+import { watchSettings, unwatchSettings, getSettings } from './config/settings.js';
 
 // Catch unhandled rejections so they don't silently kill the process
 process.on('unhandledRejection', (error) => {
@@ -25,6 +26,11 @@ async function main() {
     missingEnvVars.forEach(key => console.error(`   - ${key}`));
     process.exit(1);
   }
+
+  // Load settings and start hot-reload watcher
+  const settings = getSettings();
+  watchSettings();
+  console.log(`✓ Settings loaded (policy: ${settings.permissions.defaultPolicy}, ${settings.permissions.allowedUsers.length} allowed users)`);
 
   // Eagerly initialize SQLite + sqlite-vec so first message isn't slow
   getDb();
@@ -80,6 +86,7 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log('\n🛑 Shutting down...');
+    unwatchSettings();
     await stopWatching();
     await app.stop();
     process.exit(0);

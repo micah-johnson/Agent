@@ -1,7 +1,7 @@
 /**
  * Voyage AI embedding client
  *
- * Uses voyage-3-lite (1024 dims) for fast, cheap embeddings.
+ * Uses voyage-3-lite (512 dims) for fast, cheap embeddings.
  * Supports batch embedding for documents and single-query embedding
  * with inputType differentiation for better retrieval quality.
  */
@@ -9,6 +9,7 @@
 import { VoyageAIClient } from 'voyageai';
 
 const EMBEDDING_MODEL = 'voyage-3-lite';
+const EMBEDDING_DIMS = 512;
 const MAX_BATCH_SIZE = 128; // Voyage API limit
 
 let client: VoyageAIClient | null = null;
@@ -24,7 +25,7 @@ function getClient(): VoyageAIClient {
 }
 
 /**
- * Batch embed document texts. Returns one 1024-dim vector per input.
+ * Batch embed document texts. Returns one 512-dim vector per input.
  */
 export async function embed(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
@@ -42,7 +43,11 @@ export async function embed(texts: string[]): Promise<number[][]> {
     });
 
     for (const item of response.data ?? []) {
-      results.push(item.embedding ?? []);
+      const emb = item.embedding ?? [];
+      if (emb.length !== EMBEDDING_DIMS) {
+        throw new Error(`Expected ${EMBEDDING_DIMS}-dim embedding, got ${emb.length}`);
+      }
+      results.push(emb);
     }
   }
 

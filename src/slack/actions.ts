@@ -11,6 +11,8 @@ import type { ClaudeClient } from '../llm/client.js';
 import type { Orchestrator } from '../orchestrator/index.js';
 import { processMessage, log } from './process-message.js';
 import { ProgressUpdater } from './progress.js';
+import { isUserAllowed } from '../config/settings.js';
+import { parseApprovalAction, resolveApproval, addToSessionWhitelist } from '../tools/approval.js';
 
 export function setupActionHandlers(
   app: App,
@@ -28,9 +30,53 @@ export function setupActionHandlers(
 
     if (!channelId || !userId) return;
 
-    // Auth check
-    const allowed = (process.env.ALLOWED_SLACK_USERS || '').split(',').map((s) => s.trim());
-    if (allowed.length > 0 && allowed[0] !== '' && !allowed.includes(userId)) return;
+    // Auth check — use settings module
+    if (!isUserAllowed(userId)) return;
+
+    // ── Tool approval buttons ──────────────────────────────────────
+    const actionId = (action as any).action_id || '';
+    const approval = parseApprovalAction(actionId);
+    if (approval) {
+      // For "always", also add to session whitelist
+      if (approval.decision === 'always') {
+        // Extract tool name from the message text (format: "🔧 *toolName*\n...")
+        const msgText = (body as any).message?.blocks?.[0]?.text?.text || '';
+        const toolMatch = msgText.match(/\*(\w+)\*/);
+        if (toolMatch) {
+          addToSessionWhitelist(channelId, toolMatch[1]);
+          log(`[approval] Always-allow "${toolMatch[1]}" for channel ${channelId}`);
+        }
+      }
+
+      const resolved = resolveApproval(approval.approvalId, approval.decision);
+      log(`[approval] ${approval.decision} for ${approval.approvalId} (resolved: ${resolved})`);
+
+      // Update the approval message to show what was decided
+      const messageTs = (body as any).message?.ts;
+      if (messageTs) {
+        const originalBlocks: any[] = (body as any).message?.blocks || [];
+        const decisionLabel = approval.decision === 'accept' ? '✓ Accepted'
+          : approval.decision === 'always' ? '✓✓ Always Accepted'
+          : '✗ Denied';
+        const updatedBlocks = originalBlocks.map((block: any) => {
+          if (block.type === 'actions') {
+            return {
+              type: 'context',
+              elements: [{ type: 'mrkdwn', text: `_${decisionLabel}_` }],
+            };
+          }
+          return block;
+        });
+        await client.chat.update({
+          channel: channelId,
+          ts: messageTs,
+          blocks: updatedBlocks,
+          text: (body as any).message?.text || '',
+        }).catch((err: any) => log(`[approval] Failed to update message: ${err?.message}`));
+      }
+
+      return; // Don't process as a conversation message
+    }
 
     // Extract what the user selected
     let actionText: string;

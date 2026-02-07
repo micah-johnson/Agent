@@ -18,6 +18,8 @@ import type { ProgressUpdater } from '../slack/progress.js';
 
 const DEBOUNCE_MS = 3000;
 const MAX_RESULT_LENGTH = 3000;
+const MAX_RESULT_RETRIES = 3;
+const RETRY_DELAY_MS = 5000;
 
 interface PendingResult {
   taskId: string;
@@ -27,6 +29,7 @@ interface PendingResult {
   status: 'completed' | 'failed';
   result: string | null;
   error: string | null;
+  retryCount?: number;
 }
 
 export class Orchestrator {
@@ -39,6 +42,8 @@ export class Orchestrator {
   private channelLocks = new Map<string, Promise<void>>();
   private activeAbort = new Map<string, AbortController>();
   private activeProgress = new Map<string, ProgressUpdater>();
+  private steerQueues = new Map<string, { message: string; attachments?: any[] }[]>();
+  private callAborts = new Map<string, AbortController>();
 
   constructor(apiKey: string) {
     this.store = new TaskStore();
@@ -80,6 +85,54 @@ export class Orchestrator {
   clearAbortSignal(channelId: string): void {
     this.activeAbort.delete(channelId);
     this.activeProgress.delete(channelId);
+    this.steerQueues.delete(channelId);
+    this.callAborts.delete(channelId);
+  }
+
+  /**
+   * Check if a channel has active work (an abort controller registered).
+   */
+  isChannelActive(channelId: string): boolean {
+    return this.activeAbort.has(channelId);
+  }
+
+  /**
+   * Push a steer message and abort the current API call (if in thinking phase).
+   */
+  steerChannel(channelId: string, message: string, attachments?: any[]): void {
+    if (!this.steerQueues.has(channelId)) {
+      this.steerQueues.set(channelId, []);
+    }
+    this.steerQueues.get(channelId)!.push({ message, attachments });
+
+    // Abort current API call to interrupt thinking
+    const callAbort = this.callAborts.get(channelId);
+    if (callAbort) {
+      callAbort.abort();
+    }
+  }
+
+  /**
+   * Consume the next steer message (called by the loop).
+   */
+  consumeSteer(channelId: string): { message: string; attachments?: any[] } | null {
+    const queue = this.steerQueues.get(channelId);
+    if (!queue || queue.length === 0) return null;
+    return queue.shift()!;
+  }
+
+  /**
+   * Register the current API call's AbortController for steer interruption.
+   */
+  registerCallAbort(channelId: string, controller: AbortController): void {
+    this.callAborts.set(channelId, controller);
+  }
+
+  /**
+   * Clear the current API call's AbortController.
+   */
+  clearCallAbort(channelId: string): void {
+    this.callAborts.delete(channelId);
   }
 
   /**
@@ -126,8 +179,8 @@ export class Orchestrator {
    */
   async withChannelLock(channelId: string, fn: () => Promise<void>): Promise<void> {
     const prev = this.channelLocks.get(channelId) || Promise.resolve();
-    const next = prev.then(fn, fn);
-    this.channelLocks.set(channelId, next);
+    const next = prev.catch(() => {}).then(fn);
+    this.channelLocks.set(channelId, next.catch(() => {}));
     await next;
   }
 
@@ -195,10 +248,26 @@ export class Orchestrator {
 
     await this.withChannelLock(channelId, async () => {
       const signal = this.createAbortSignal(channelId);
-      const progress = new ProgressUpdater(channelId, client);
-      this.setActiveProgress(channelId, progress);
+      const progressRef = { current: new ProgressUpdater(channelId, client) };
+      this.setActiveProgress(channelId, progressRef.current);
       try {
-        progress.postInitial(); // Non-blocking
+        progressRef.current.postInitial(); // Non-blocking
+
+        // Build steer callbacks for sub-agent result processing
+        const steer = {
+          consume: () => this.consumeSteer(channelId),
+          registerCallAbort: (controller: AbortController) => this.registerCallAbort(channelId, controller),
+          clearCallAbort: () => this.clearCallAbort(channelId),
+          onSteer: (message: string) => {
+            log(`[orchestrator] Steer injected during sub-agent processing: "${message.substring(0, 80)}"`);
+            const oldProgress = progressRef.current;
+            oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+            const newProgress = new ProgressUpdater(channelId, client);
+            newProgress.postInitial();
+            progressRef.current = newProgress;
+            this.setActiveProgress(channelId, newProgress);
+          },
+        };
 
         const result = await processMessage(
           channelId,
@@ -207,18 +276,40 @@ export class Orchestrator {
           client,
           claude,
           this,
-          (event) => progress.onProgress(event),
-          (ts, blocks) => progress.adoptMessage(ts, blocks),
+          (event) => progressRef.current.onProgress(event),
+          (ts, blocks) => progressRef.current.adoptMessage(ts, blocks),
           signal,
+          undefined,
+          () => progressRef.current.getMessageTs(),
+          steer,
         );
 
         if (!signal.aborted) {
-          await progress.finalize(result.text, result.toolCalls, result.usage);
+          await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
         }
       } catch (err: any) {
         if (!signal.aborted) {
           log(`[orchestrator] Failed to process sub-agent results: ${err?.message || err}`);
-          await progress.abort('Sorry, something went wrong processing sub-agent results.');
+          await progressRef.current.abort('Sorry, something went wrong processing sub-agent results.');
+
+          // Re-queue results for retry if under MAX_RESULT_RETRIES
+          const maxRetry = Math.max(...results.map((r) => r.retryCount ?? 0));
+          if (maxRetry < MAX_RESULT_RETRIES) {
+            const retried = results.map((r) => ({
+              ...r,
+              retryCount: (r.retryCount ?? 0) + 1,
+            }));
+            log(`[orchestrator] Re-queuing ${retried.length} results for retry (attempt ${retried[0].retryCount}/${MAX_RESULT_RETRIES})`);
+            setTimeout(() => {
+              if (!this.pendingResults.has(channelId)) {
+                this.pendingResults.set(channelId, []);
+              }
+              this.pendingResults.get(channelId)!.push(...retried);
+              this.processPendingResults(channelId);
+            }, RETRY_DELAY_MS);
+          } else {
+            log(`[orchestrator] Max retries (${MAX_RESULT_RETRIES}) reached for channel ${channelId}, dropping results`);
+          }
         }
       } finally {
         this.clearAbortSignal(channelId);

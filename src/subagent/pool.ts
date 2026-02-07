@@ -29,11 +29,13 @@ export class WorkerPool extends EventEmitter {
     this.apiKey = apiKey;
   }
 
-  submit(task: Task): void {
+  submit(task: Task): { queued: boolean; position?: number } {
     if (this.running.size < MAX_CONCURRENCY) {
       this.run(task);
+      return { queued: false };
     } else {
       this.queue.push(task);
+      return { queued: true, position: this.queue.length };
     }
   }
 
@@ -89,6 +91,27 @@ export class WorkerPool extends EventEmitter {
     });
 
     return cancelled;
+  }
+
+  getStatus(): { active: number; queued: number; tasks: { id: string; title: string; status: string }[] } {
+    const tasks: { id: string; title: string; status: string }[] = [];
+
+    for (const taskId of this.running.keys()) {
+      const task = this.store.get(taskId);
+      if (task) {
+        tasks.push({ id: task.id, title: task.title, status: 'running' });
+      }
+    }
+
+    for (const task of this.queue) {
+      tasks.push({ id: task.id, title: task.title, status: 'queued' });
+    }
+
+    return {
+      active: this.running.size,
+      queued: this.queue.length,
+      tasks,
+    };
   }
 
   private run(task: Task): void {

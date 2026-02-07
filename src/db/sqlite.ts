@@ -100,6 +100,15 @@ export function getDb(): Database {
     )
   `);
 
+  // Periodic WAL checkpoint to prevent unbounded WAL growth
+  setInterval(() => {
+    try {
+      db?.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (err: any) {
+      console.error(`[db] WAL checkpoint failed: ${err?.message || err}`);
+    }
+  }, 5 * 60 * 1000);
+
   console.log('✓ SQLite database initialized (with sqlite-vec)');
   return db;
 }

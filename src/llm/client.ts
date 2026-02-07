@@ -1,5 +1,5 @@
-import { getModel, type Model, type Message } from '@mariozechner/pi-ai';
-import { runAgentLoop, type AgentLoopUsage, type ProgressEvent } from '../agent/loop.js';
+import { getModel, type Model, type Message, type TextContent, type ImageContent } from '@mariozechner/pi-ai';
+import { runAgentLoop, type AgentLoopOptions, type AgentLoopUsage, type ProgressEvent } from '../agent/loop.js';
 import type { ToolRegistry } from '../tools/registry.js';
 
 export interface ClaudeResponse {
@@ -40,6 +40,9 @@ export class ClaudeClient {
     history?: Message[],
     onProgress?: (event: ProgressEvent) => void,
     signal?: AbortSignal,
+    approvalGate?: (toolName: string, toolArgs: Record<string, any>) => Promise<'accept' | 'always' | 'deny'>,
+    attachments?: (TextContent | ImageContent)[],
+    steer?: AgentLoopOptions['steer'],
   ): Promise<ClaudeResponse> {
     const model = this.getModel();
 
@@ -52,6 +55,9 @@ export class ClaudeClient {
       reasoning: 'high',
       onProgress,
       signal,
+      approvalGate,
+      attachments,
+      steer,
     });
 
     return {

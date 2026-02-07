@@ -16,13 +16,21 @@ import { searchMemoryTool } from '../tools/search-memory.js';
 import { updateKnowledgeTool } from '../tools/update-knowledge.js';
 import { getProjectContextTool } from '../tools/get-project-context.js';
 import { createPostRichMessageTool } from '../tools/post-rich-message.js';
+import { createFileEditTool } from '../tools/file-edit.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
 import { loadKnowledge } from '../memory/knowledge.js';
 import { indexMessages } from '../memory/indexer.js';
-import type { AgentLoopUsage } from '../agent/loop.js';
+import type { AgentLoopOptions, AgentLoopUsage } from '../agent/loop.js';
 import type { ProgressEvent } from './progress.js';
-import type { AssistantMessage, Message } from '@mariozechner/pi-ai';
+import type { AssistantMessage, Message, TextContent, ImageContent } from '@mariozechner/pi-ai';
+import { getToolApprovalMode, isToolAlwaysAllowed } from '../config/settings.js';
+import {
+  requestToolApproval,
+  isSessionWhitelisted,
+  addToSessionWhitelist,
+  type ApprovalDecision,
+} from '../tools/approval.js';
 import { readFileSync, appendFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -109,6 +117,9 @@ export async function processMessage(
   onProgress?: (event: ProgressEvent) => void,
   onNewRichMessage?: (ts: string, blocks: any[]) => void,
   signal?: AbortSignal,
+  attachments?: (TextContent | ImageContent)[],
+  getProgressTs?: () => string | null,
+  steer?: AgentLoopOptions['steer'],
 ): Promise<ProcessMessageResult> {
   const t0 = Date.now();
   const checkTasksTool = createCheckTasksTool(orchestrator);
@@ -122,6 +133,7 @@ export async function processMessage(
     channel_id: channelId,
     onNewMessage: onNewRichMessage,
   });
+  const fileEditTool = createFileEditTool(client, { channel_id: channelId, getThreadTs: getProgressTs });
 
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
@@ -131,6 +143,7 @@ export async function processMessage(
     updateKnowledgeTool,
     getProjectContextTool,
     richMessageTool,
+    fileEditTool,
   ]);
 
   const knowledge = loadKnowledge();
@@ -142,21 +155,40 @@ export async function processMessage(
 
   const history = conversationStore.load(channelId);
 
-  log(`Processing: "${userMessage}" (history: ${history.length} messages, setup: ${Date.now() - t0}ms)`);
+  // Build approval gate if user is in 'approve' mode
+  const approvalMode = getToolApprovalMode(userId);
+  let approvalGate: ((toolName: string, toolArgs: Record<string, any>) => Promise<ApprovalDecision>) | undefined;
+
+  if (approvalMode === 'approve') {
+    approvalGate = async (toolName: string, toolArgs: Record<string, any>): Promise<ApprovalDecision> => {
+      // Settings-level always-allow (e.g. file_read, grep)
+      if (isToolAlwaysAllowed(toolName)) return 'accept';
+      // Session-level whitelist (from previous "Always Accept" clicks)
+      if (isSessionWhitelisted(channelId, toolName)) return 'accept';
+
+      const decision = await requestToolApproval(toolName, toolArgs, channelId, client, signal);
+      if (decision === 'always') {
+        addToSessionWhitelist(channelId, toolName);
+      }
+      return decision;
+    };
+  }
+
+  log(`Processing: "${userMessage}" (history: ${history.length} messages, attachments: ${attachments?.length ?? 0}, approval: ${approvalMode}, setup: ${Date.now() - t0}ms)`);
   let response;
   try {
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer);
   } catch (firstError: any) {
     // Don't retry if aborted
     if (signal?.aborted) throw firstError;
     log(`First attempt failed: ${firstError?.message || firstError}`);
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer);
   }
   log(`Response: ${response.text?.substring(0, 100)}`);
   log(`Tokens: ${response.usage.inputTokens} in, ${response.usage.outputTokens} out, ${response.usage.cacheReadTokens} cache-read, ${response.usage.cacheWriteTokens} cache-write`);
 
-  // Persist conversation history (async, don't block response)
-  queueMicrotask(() => conversationStore.save(channelId, response.messages));
+  // Save conversation history
+  conversationStore.save(channelId, response.messages);
 
   // Index for memory search (async)
   const indexEntries = extractIndexEntries(userMessage, response.messages);
@@ -166,11 +198,12 @@ export async function processMessage(
     });
   }
 
-  // Check compaction (async)
+  // Check compaction (async) — uses saveSummary which atomically replaces messages
   if (needsCompaction(response.messages)) {
     log(`Compaction triggered for channel ${channelId}`);
     compactConversation(response.messages, claude.getApiKey())
       .then(({ messages: compacted, summary }) => {
+        // Only save compacted version — this replaces the full history we just saved
         conversationStore.saveSummary(channelId, summary, compacted);
         log(`Compaction complete for channel ${channelId} (${summary.length} chars)`);
       })
