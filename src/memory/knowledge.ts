@@ -30,13 +30,18 @@ function ensureFile(): void {
   }
 }
 
+// In-memory cache — avoids disk read on every message
+let knowledgeCache: string | null = null;
+
 /**
  * Read the full knowledge.md contents.
- * Returns empty string if file doesn't exist yet.
+ * Cached in memory; invalidated on write.
  */
 export function loadKnowledge(): string {
+  if (knowledgeCache !== null) return knowledgeCache;
   ensureFile();
-  return readFileSync(KNOWLEDGE_PATH, 'utf-8');
+  knowledgeCache = readFileSync(KNOWLEDGE_PATH, 'utf-8');
+  return knowledgeCache;
 }
 
 /**
@@ -65,6 +70,7 @@ export function appendKnowledge(section: string, entry: string): void {
   }
 
   writeFileSync(KNOWLEDGE_PATH, content, 'utf-8');
+  knowledgeCache = content;
 }
 
 /**
@@ -88,4 +94,5 @@ export function replaceKnowledgeSection(section: string, newContent: string): vo
   }
 
   writeFileSync(KNOWLEDGE_PATH, content, 'utf-8');
+  knowledgeCache = content;
 }

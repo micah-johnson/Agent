@@ -23,6 +23,15 @@ export interface AgentLoopOptions {
   maxIterations?: number;
   tools?: ToolRegistry;
   history?: Message[];
+  reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+}
+
+export interface AgentLoopUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
 }
 
 export interface AgentLoopResult {
@@ -31,6 +40,7 @@ export interface AgentLoopResult {
   toolCalls: number;
   stopped: boolean;
   messages: Message[];
+  usage: AgentLoopUsage;
 }
 
 export async function runAgentLoop(
@@ -40,6 +50,13 @@ export async function runAgentLoop(
   const maxIterations = options.maxIterations || MAX_ITERATIONS;
   let iterations = 0;
   let totalToolCalls = 0;
+  const usage: AgentLoopUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+  };
 
   const registry = options.tools || toolRegistry;
 
@@ -66,10 +83,20 @@ export async function runAgentLoop(
       },
       {
         apiKey: options.apiKey,
-        maxTokens: 4096,
+        maxTokens: 16384,
         temperature: 1.0,
+        ...(options.reasoning ? { reasoning: options.reasoning } : {}),
       },
     );
+
+    // Accumulate token usage
+    if (response.usage) {
+      usage.inputTokens += response.usage.input || 0;
+      usage.outputTokens += response.usage.output || 0;
+      usage.cacheReadTokens += response.usage.cacheRead || 0;
+      usage.cacheWriteTokens += response.usage.cacheWrite || 0;
+      usage.totalTokens += response.usage.totalTokens || 0;
+    }
 
     // No more tool calls — extract final text
     if (response.stopReason === 'stop' || response.stopReason === 'length') {
@@ -85,6 +112,7 @@ export async function runAgentLoop(
         toolCalls: totalToolCalls,
         stopped: true,
         messages,
+        usage,
       };
     }
 
@@ -110,52 +138,56 @@ export async function runAgentLoop(
         toolCalls: totalToolCalls,
         stopped: true,
         messages,
+        usage,
       };
     }
 
     // Add assistant response to history
     messages.push(response);
 
-    // Execute each tool call and feed results back
-    for (const toolCall of callBlocks) {
-      totalToolCalls++;
+    // Execute tool calls in parallel and feed results back
+    totalToolCalls += callBlocks.length;
 
-      const tool = registry.get(toolCall.name);
+    const toolResults = await Promise.all(
+      callBlocks.map(async (toolCall) => {
+        const tool = registry.get(toolCall.name);
 
-      if (!tool) {
-        messages.push({
-          role: 'toolResult',
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          content: [{ type: 'text', text: `Error: Tool '${toolCall.name}' not found` }],
-          isError: true,
-          timestamp: Date.now(),
-        });
-        continue;
-      }
+        if (!tool) {
+          return {
+            role: 'toolResult' as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: [{ type: 'text' as const, text: `Error: Tool '${toolCall.name}' not found` }],
+            isError: true,
+            timestamp: Date.now(),
+          };
+        }
 
-      try {
-        const result = await tool.execute(toolCall.arguments);
-        messages.push({
-          role: 'toolResult',
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          content: [{ type: 'text', text: result.success ? result.output! : `Error: ${result.error}` }],
-          isError: !result.success,
-          timestamp: Date.now(),
-        });
-      } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        messages.push({
-          role: 'toolResult',
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          content: [{ type: 'text', text: `Error executing tool: ${msg}` }],
-          isError: true,
-          timestamp: Date.now(),
-        });
-      }
-    }
+        try {
+          const result = await tool.execute(toolCall.arguments);
+          return {
+            role: 'toolResult' as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: [{ type: 'text' as const, text: result.success ? result.output! : `Error: ${result.error}` }],
+            isError: !result.success,
+            timestamp: Date.now(),
+          };
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return {
+            role: 'toolResult' as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: [{ type: 'text' as const, text: `Error executing tool: ${msg}` }],
+            isError: true,
+            timestamp: Date.now(),
+          };
+        }
+      }),
+    );
+
+    messages.push(...toolResults);
   }
 
   return {
@@ -164,5 +196,6 @@ export async function runAgentLoop(
     toolCalls: totalToolCalls,
     stopped: false,
     messages,
+    usage,
   };
 }

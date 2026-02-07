@@ -40,8 +40,8 @@ export function createSpawnSubagentTool(
         model: {
           type: 'string',
           description:
-            'Model to use: "claude-sonnet-4-5" (default, fast) or "claude-opus-4-6" (complex tasks)',
-          enum: ['claude-sonnet-4-5', 'claude-opus-4-6'],
+            'Model to use: "claude-opus-4-6" (default) or "claude-sonnet-4-5" (fast, simple tasks)',
+          enum: ['claude-opus-4-6', 'claude-sonnet-4-5'],
         },
       },
       required: ['title', 'prompt'],
@@ -50,7 +50,7 @@ export function createSpawnSubagentTool(
     async execute(input: ToolInput): Promise<ToolResult> {
       const title = input.title as string;
       const prompt = input.prompt as string;
-      const model = (input.model as string) || 'claude-sonnet-4-5';
+      const model = (input.model as string) || 'claude-opus-4-6';
 
       const task = orchestrator.store.create({
         title,

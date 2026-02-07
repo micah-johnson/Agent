@@ -1,11 +1,13 @@
 import { getModel, type Model, type Message } from '@mariozechner/pi-ai';
-import { runAgentLoop } from '../agent/loop.js';
+import { runAgentLoop, type AgentLoopUsage } from '../agent/loop.js';
 import type { ToolRegistry } from '../tools/registry.js';
 
 export interface ClaudeResponse {
   text: string;
   stopReason: string;
   messages: Message[];
+  toolCalls: number;
+  usage: AgentLoopUsage;
 }
 
 export class ClaudeClient {
@@ -45,12 +47,15 @@ export class ClaudeClient {
       systemPrompt,
       tools,
       history,
+      reasoning: 'high',
     });
 
     return {
       text: result.text,
       stopReason: result.stopped ? 'stop' : 'max_iterations',
       messages: result.messages,
+      toolCalls: result.toolCalls,
+      usage: result.usage,
     };
   }
 }

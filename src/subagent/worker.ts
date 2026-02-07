@@ -39,6 +39,7 @@ export async function runSubAgent(
     model,
     systemPrompt: SUB_AGENT_SYSTEM_PROMPT,
     tools,
+    reasoning: 'high',
   });
 
   return {

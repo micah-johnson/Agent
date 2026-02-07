@@ -2,6 +2,7 @@ import { App } from '@slack/bolt';
 import { ClaudeClient } from './llm/client.js';
 import { Orchestrator } from './orchestrator/index.js';
 import { setupMessageHandler } from './slack/handler.js';
+import { setupActionHandlers } from './slack/actions.js';
 import { loadProjects } from './workspace/registry.js';
 import { indexAllProjects } from './workspace/indexer.js';
 import { startWatching, stopWatching } from './workspace/watcher.js';
@@ -51,10 +52,12 @@ async function main() {
   // Give orchestrator access to Slack for posting sub-agent results
   orchestrator.setSlackClient(app.client);
 
-  // Set up message handler with orchestrator
+  // Set up message handler and action handlers
   setupMessageHandler(app, claude, orchestrator);
+  setupActionHandlers(app, claude, orchestrator);
 
   // Start the app
+  console.log('  Connecting to Slack...');
   await app.start();
   console.log('✓ Slack app started (Socket Mode)');
 

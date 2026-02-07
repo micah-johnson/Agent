@@ -31,7 +31,8 @@ export function needsCompaction(messages: Message[]): boolean {
     const msg = messages[i];
     if (msg.role === 'assistant') {
       const assistant = msg as AssistantMessage;
-      if (assistant.usage?.input > TOKEN_THRESHOLD) {
+      const totalInput = (assistant.usage?.input ?? 0) + (assistant.usage?.cacheRead ?? 0);
+      if (totalInput > TOKEN_THRESHOLD) {
         return true;
       }
       return false;
