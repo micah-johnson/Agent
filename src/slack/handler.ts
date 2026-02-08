@@ -1,8 +1,7 @@
-import { App, GenericMessageEvent } from '@slack/bolt';
-import type { WebClient } from '@slack/web-api';
+import type { App, GenericMessageEvent } from '@slack/bolt';
 import { ClaudeClient } from '../llm/client.js';
 import { Orchestrator } from '../orchestrator/index.js';
-import { ProgressUpdater, type ProgressEvent } from './progress.js';
+import { ProgressUpdater } from './progress.js';
 import { processMessage, log } from './process-message.js';
 import { isUserAllowed, getMessageMode } from '../config/settings.js';
 import { processSlackFiles, type ContentBlock } from './attachments.js';

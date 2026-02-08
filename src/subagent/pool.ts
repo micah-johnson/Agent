@@ -11,8 +11,7 @@
 
 import { EventEmitter } from 'events';
 import { runSubAgent } from './worker.js';
-import type { Task } from '../tasks/store.js';
-import type { TaskStore } from '../tasks/store.js';
+import type { Task, TaskStore } from '../tasks/store.js';
 
 const MAX_CONCURRENCY = 3;
 

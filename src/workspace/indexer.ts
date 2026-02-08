@@ -4,7 +4,7 @@
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { execSync } from 'child_process';
 import { getDb } from '../db/sqlite.js';
 import { loadProjects, type Project } from './registry.js';

@@ -8,7 +8,7 @@
  */
 
 import { spawn, type ChildProcess } from 'child_process';
-import { mkdirSync, existsSync, appendFileSync, readFileSync, statSync } from 'fs';
+import { mkdirSync, existsSync, appendFileSync, readFileSync } from 'fs';
 
 const LOG_DIR = '/tmp/agent-processes';
 const MAX_PROCESSES = 5;

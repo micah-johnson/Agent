@@ -6,7 +6,6 @@
 import type { Tool, ToolInput, ToolResult } from './types.js';
 import {
   getProjectSummary,
-  getAllProjectSummaries,
   type ProjectSummary,
 } from '../workspace/indexer.js';
 import { loadProjects } from '../workspace/registry.js';

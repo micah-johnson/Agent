@@ -29,12 +29,3 @@ export interface Tool {
   };
   execute(input: ToolInput): Promise<ToolResult>;
 }
-
-/**
- * Tool execution context
- */
-export interface ToolContext {
-  workingDirectory?: string;
-  timeout?: number;
-  userId?: string;
-}
