@@ -234,6 +234,11 @@ export class ProgressUpdater {
 
     // If there's already intermediate text on this message, finalize it and start a new message
     if (this.intermediateText) {
+      // Kill heartbeat/timers so they don't re-append progress after our clean update
+      this.stopHeartbeat();
+      if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+      this.pendingEvent = null;
+
       // Strip progress from old message — just the text, permanent
       try {
         await this.client.chat.update({
@@ -253,6 +258,9 @@ export class ProgressUpdater {
         });
         this.messageTs = result.ts!;
       } catch { /* non-fatal */ }
+
+      // Restart heartbeat for the new message
+      this.startHeartbeat();
     }
 
     // Set intermediate text as the base content — progress will append below
