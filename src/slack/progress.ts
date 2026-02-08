@@ -63,12 +63,9 @@ export class ProgressUpdater {
    * Non-blocking — returns immediately while the API call runs in the background.
    */
   postInitial(): void {
-    const { showProgress } = getDisplaySettings();
-
-    const initialBlocks = showProgress
-      ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }]
-      : [{ type: 'context', elements: [{ type: 'mrkdwn', text: '\u200b' }] }];
-    const initialText = showProgress ? 'Thinking...' : '\u200b';
+    // Always show "Thinking..." — showProgress only controls tool call detail updates
+    const initialBlocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }];
+    const initialText = 'Thinking...';
 
     this.messageReady = this.client.chat
       .postMessage({
@@ -340,23 +337,21 @@ export class ProgressUpdater {
   }
 
   private buildProgressContext(event: ProgressEvent): any {
-    const MAX_VISIBLE = 3;
     const lines: string[] = [];
 
-    const inProgressCount = (event.phase === 'tools_start' && this.currentTools)
-      ? this.currentTools.length
-      : 0;
-
-    const completedSlots = Math.max(0, MAX_VISIBLE - inProgressCount);
-    const recentCompleted = completedSlots > 0 ? this.completed.slice(-completedSlots) : [];
-    for (const tool of recentCompleted) {
-      const circle = tool.success ? '\ud83d\udfe2' : '\ud83d\udd34';
-      lines.push(`${circle} ${tool.name}(${tool.summary})`);
+    // Collapsed summary of completed tools
+    if (this.completed.length > 0) {
+      const succeeded = this.completed.filter(t => t.success).length;
+      const failed = this.completed.length - succeeded;
+      let summary = `✓ ${succeeded} tool${succeeded !== 1 ? 's' : ''} completed`;
+      if (failed > 0) summary += ` · ${failed} failed`;
+      lines.push(summary);
     }
 
+    // Expanded currently running tools
     if (event.phase === 'tools_start' && this.currentTools) {
       for (const tool of this.currentTools) {
-        lines.push(`\ud83d\udfe0 ${tool.name}(${summarizeArgs(tool.name, tool.args)})`);
+        lines.push(`🟠 ${tool.name}(${summarizeArgs(tool.name, tool.args)})`);
       }
     } else {
       const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(0);
@@ -365,9 +360,8 @@ export class ProgressUpdater {
 
     let text = lines.join('\n');
 
-    while (text.length > MAX_CONTEXT_LENGTH && lines.length > 2) {
-      lines.shift();
-      text = ['...', ...lines].join('\n');
+    if (text.length > MAX_CONTEXT_LENGTH) {
+      text = text.substring(0, MAX_CONTEXT_LENGTH - 3) + '...';
     }
 
     return { type: 'context', elements: [{ type: 'mrkdwn', text }] };
