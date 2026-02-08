@@ -28,7 +28,7 @@ export interface ProgressEvent {
   tools?: ToolProgressInfo[];
 }
 
-const MAX_ITERATIONS = 50;
+const MAX_ITERATIONS = 100;
 const API_TIMEOUT_MS = 120_000; // 2 minutes per API call
 
 export interface AgentLoopOptions {
