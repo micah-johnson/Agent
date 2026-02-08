@@ -293,6 +293,35 @@ export class ProgressUpdater {
     }
   }
 
+  /**
+   * Cleanly dismiss the progress message on steer.
+   * - If there's intermediate text, keep it but strip progress context.
+   * - If it's just a status message, delete it entirely.
+   */
+  async dismiss(): Promise<void> {
+    this.dispose();
+
+    if (this.messageReady) await this.messageReady;
+    if (!this.messageTs) return;
+
+    if (this.intermediateText) {
+      // Keep the intermediate text, strip progress
+      await this.client.chat
+        .update({
+          channel: this.channelId,
+          ts: this.messageTs,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: this.intermediateText } }],
+          text: this.intermediateText,
+        })
+        .catch(() => {});
+    } else {
+      // Just a status message — delete it
+      await this.client.chat
+        .delete({ channel: this.channelId, ts: this.messageTs })
+        .catch(() => {});
+    }
+  }
+
   getMessageTs(): string | null {
     return this.messageTs;
   }

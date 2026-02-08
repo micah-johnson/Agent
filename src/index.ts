@@ -117,7 +117,7 @@ async function main() {
             clearCallAbort: () => orchestrator.clearCallAbort(job.channel_id),
             onSteer: (message: string) => {
               const oldProgress = progressRef.current;
-              oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+              oldProgress.dismiss().catch(() => {});
               const newProgress = new ProgressUpdater(job.channel_id, app.client);
               newProgress.postInitial();
               progressRef.current = newProgress;
@@ -202,7 +202,7 @@ async function main() {
               clearCallAbort: () => orchestrator.clearCallAbort(marker.channel_id),
               onSteer: (message: string) => {
                 const oldProgress = progressRef.current;
-                oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+                oldProgress.dismiss().catch(() => {});
                 const newProgress = new ProgressUpdater(marker.channel_id, app.client);
                 newProgress.postInitial();
                 progressRef.current = newProgress;

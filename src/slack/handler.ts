@@ -113,7 +113,7 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
             log(`Steer injected: "${message.substring(0, 80)}"`);
             // Delete old progress, create new one
             const oldProgress = progressRef.current;
-            oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+            oldProgress.dismiss().catch(() => {});
             const newProgress = new ProgressUpdater(channelId, client);
             newProgress.postInitial();
             progressRef.current = newProgress;

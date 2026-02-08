@@ -261,7 +261,7 @@ export class Orchestrator {
           onSteer: (message: string) => {
             log(`[orchestrator] Steer injected during sub-agent processing: "${message.substring(0, 80)}"`);
             const oldProgress = progressRef.current;
-            oldProgress.abort(`Steered → _${message.substring(0, 50)}_`).catch(() => {});
+            oldProgress.dismiss().catch(() => {});
             const newProgress = new ProgressUpdater(channelId, client);
             newProgress.postInitial();
             progressRef.current = newProgress;
