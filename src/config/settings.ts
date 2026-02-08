@@ -74,7 +74,7 @@ const DEFAULT_MODELS: ModelSettings = {
 };
 
 const DEFAULT_AGENT: AgentSettings = {
-  compactionTokenThreshold: 80_000,
+  compactionTokenThreshold: 120_000,
   maxConcurrentSubagents: 3,
   schedulerTickMs: 30_000,
 };

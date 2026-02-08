@@ -11,6 +11,9 @@ export { processMessage, log, type ProcessMessageResult } from './process-messag
 let botUserId: string | null = null;
 export function setBotUserId(id: string) { botUserId = id; }
 
+// Cache Slack user display names to avoid repeated API calls
+const userNameCache = new Map<string, string>();
+
 // Dedup guard — Slack Socket Mode can deliver the same event twice
 const processedMessages = new Map<string, number>();
 
@@ -63,6 +66,24 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
       userMessage = userMessage.replace(new RegExp(`<@${botUserId}>`, 'g'), '').trim();
     }
     const slackFiles = (messageEvent as any).files as any[] | undefined;
+
+    // In group DMs, prefix with sender's name so the model can distinguish users
+    if (isGroupDM && userMessage) {
+      let displayName = userNameCache.get(userId);
+      if (!displayName) {
+        try {
+          const info = await client.users.info({ user: userId });
+          displayName = info.user?.profile?.display_name
+            || info.user?.profile?.real_name
+            || info.user?.real_name
+            || userId;
+          userNameCache.set(userId, displayName);
+        } catch {
+          displayName = userId;
+        }
+      }
+      userMessage = `[${displayName}]: ${userMessage}`;
+    }
 
     log(`Received: "${userMessage}" from ${userId}${slackFiles?.length ? ` (${slackFiles.length} file(s))` : ''}`);
 
