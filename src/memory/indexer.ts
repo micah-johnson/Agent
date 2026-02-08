@@ -31,6 +31,7 @@ export async function indexMessages(
   source: 'conversation' | 'task',
   sourceId: string,
   entries: IndexEntry[],
+  userId?: string,
 ): Promise<void> {
   const valid = entries.filter((e) => {
     const content = e.content.trim();
@@ -43,8 +44,8 @@ export async function indexMessages(
   const db = getDb();
 
   const insertEntry = db.prepare(
-    `INSERT INTO memory_entries (source, source_id, role, content)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT INTO memory_entries (source, source_id, role, content, user_id)
+     VALUES (?, ?, ?, ?, ?)`,
   );
 
   const insertFts = db.prepare(
@@ -60,7 +61,7 @@ export async function indexMessages(
   // Insert entries into memory_entries and memory_fts (synchronous)
   const entryIds: number[] = [];
   for (const entry of valid) {
-    const result = insertEntry.run(source, sourceId, entry.role, entry.content);
+    const result = insertEntry.run(source, sourceId, entry.role, entry.content, userId ?? null);
     const id = Number(result.lastInsertRowid);
     entryIds.push(id);
 

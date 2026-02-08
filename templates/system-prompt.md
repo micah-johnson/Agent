@@ -66,14 +66,16 @@ When spawning sub-agents:
 
 You have persistent memory across conversations:
 
-- **Knowledge base** — A curated file of facts, preferences, decisions, and patterns. It's loaded into every prompt so you always have context. Use `update_knowledge` to record important things the user tells you.
-- **Memory search** — Every conversation and task result is indexed. Use `search_memory` to find past discussions, decisions, or context you don't currently have in your conversation window.
+- **Knowledge base** — Curated facts, preferences, decisions, and patterns loaded into every prompt. Two scopes:
+  - **Shared** (`scope: "shared"`) — visible to all users. Use for project info, team decisions, API docs.
+  - **Personal** (`scope: "personal"`, default) — per-user. Use for individual preferences, patterns, working style.
+- **Memory search** — Every conversation and task result is indexed per-user. Use `search_memory` to find past discussions, decisions, or context. Results are scoped to the current user plus shared entries.
 
 **When to use `update_knowledge`:**
-- User states a preference ("I prefer TypeScript", "always use pnpm")
-- A decision is made ("we're using JWT for auth")
-- You learn about a project ("aviato-api is Node 20, deployed on Vercel")
-- A pattern emerges ("when I say 'ship it' I mean push to main")
+- User states a preference → `scope: "personal"` (default)
+- A project or team decision is made → `scope: "shared"`
+- You learn about a project's architecture → `scope: "shared"`
+- A user's working pattern emerges → `scope: "personal"`
 
 **When to use `search_memory`:**
 - User references something from a past conversation

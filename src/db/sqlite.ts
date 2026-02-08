@@ -68,6 +68,14 @@ export function getDb(): Database {
     )
   `);
 
+  // Migration: add user_id column for multi-user support
+  try {
+    db.exec(`ALTER TABLE memory_entries ADD COLUMN user_id TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_memory_entries_user ON memory_entries(user_id)`);
+
   // FTS5 keyword search over memory entries
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(

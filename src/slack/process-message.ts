@@ -13,7 +13,7 @@ import { createSpawnSubagentTool } from '../tools/spawn-subagent.js';
 import { createCheckTasksTool } from '../tools/check-tasks.js';
 import { createCancelTaskTool } from '../tools/cancel-task.js';
 import { searchMemoryTool } from '../tools/search-memory.js';
-import { updateKnowledgeTool } from '../tools/update-knowledge.js';
+import { createUpdateKnowledgeTool } from '../tools/update-knowledge.js';
 import { getProjectContextTool } from '../tools/get-project-context.js';
 import { createPostRichMessageTool } from '../tools/post-rich-message.js';
 import { createFileEditTool } from '../tools/file-edit.js';
@@ -148,6 +148,8 @@ export async function processMessage(
   const selfRestartTool = createSelfRestartTool({ channel_id: channelId, user_id: userId });
   const canvasTool = createCanvasTool(client, { channel_id: channelId, user_id: userId });
 
+  const updateKnowledgeTool = createUpdateKnowledgeTool({ user_id: userId });
+
   const mcpTools = MCPManager.getInstance().getAllTools();
   const tools = ToolRegistry.forOrchestrator([
     spawnTool,
@@ -164,7 +166,7 @@ export async function processMessage(
     canvasTool,
   ], mcpTools);
 
-  const knowledge = loadKnowledge();
+  const knowledge = loadKnowledge(userId);
   let systemPrompt = baseSystemPrompt;
   if (knowledge.trim()) {
     systemPrompt += `\n\n## Knowledge Base\n\n${knowledge}`;

@@ -1,6 +1,9 @@
 /**
  * search_memory tool — hybrid FTS5 + vector search over past
  * conversations and task results.
+ *
+ * Memory search is global — all users share the same pool.
+ * This lets the agent leverage learnings from any conversation.
  */
 
 import type { Tool, ToolInput, ToolResult } from './types.js';

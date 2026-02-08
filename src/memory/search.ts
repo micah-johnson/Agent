@@ -3,6 +3,10 @@
  *
  * Runs both searches, merges and deduplicates results,
  * returns a ranked list of memory entries.
+ *
+ * Memory is global — all users share the same search pool.
+ * The user_id column exists on memory_entries for metadata/audit
+ * but is not used for filtering.
  */
 
 import { getDb } from '../db/sqlite.js';
