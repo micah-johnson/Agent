@@ -49,6 +49,8 @@ export class ProgressUpdater {
   private completed: CompletedTool[] = [];
   private currentTools: ToolProgressInfo[] | null = null;
   private startTime: number;
+  /** Tracks intermediate text on the current message so finalize knows to start a new message. */
+  private intermediateText: string | null = null;
 
   constructor(channelId: string, client: WebClient) {
     this.channelId = channelId;
@@ -130,6 +132,7 @@ export class ProgressUpdater {
     this.messageTs = newTs;
     this.baseBlocks = blocks;
     this.richContentActive = true;
+    this.intermediateText = null; // Rich message takes over
 
     if (oldTs && !wasRichContent) {
       this.client.chat.delete({ channel: this.channelId, ts: oldTs }).catch(() => {});
@@ -173,71 +176,101 @@ export class ProgressUpdater {
     // Wait for the initial message to be posted (reuses the HTTPS connection)
     if (this.messageReady) await this.messageReady;
 
-    const blocks = this.richContentActive
-      ? showMetadata ? [...this.baseBlocks, footer] : [...this.baseBlocks]
-      : showMetadata ? [{ type: 'section', text: { type: 'mrkdwn', text } }, footer] : [{ type: 'section', text: { type: 'mrkdwn', text } }];
+    if (this.intermediateText) {
+      // There's intermediate text on the current message — finalize it (text only, permanent)
+      if (this.messageTs) {
+        try {
+          await this.client.chat.update({
+            channel: this.channelId,
+            ts: this.messageTs,
+            blocks: [{ type: 'section', text: { type: 'mrkdwn', text: this.intermediateText } }],
+            text: this.intermediateText,
+          });
+        } catch { /* non-fatal */ }
+      }
 
-    if (this.messageTs) {
-      // Update is fast — reuses the established connection
-      await this.client.chat.update({
-        channel: this.channelId,
-        ts: this.messageTs,
-        blocks,
-        text,
-      });
-    } else {
-      // postInitial failed entirely — post fresh
+      // Post the final response as a new message
+      const blocks = showMetadata
+        ? [{ type: 'section', text: { type: 'mrkdwn', text } }, footer]
+        : [{ type: 'section', text: { type: 'mrkdwn', text } }];
+
       await this.client.chat.postMessage({
         channel: this.channelId,
         blocks,
         text,
       });
+    } else {
+      // No intermediate text — normal finalize on the existing message
+      const blocks = this.richContentActive
+        ? showMetadata ? [...this.baseBlocks, footer] : [...this.baseBlocks]
+        : showMetadata ? [{ type: 'section', text: { type: 'mrkdwn', text } }, footer] : [{ type: 'section', text: { type: 'mrkdwn', text } }];
+
+      if (this.messageTs) {
+        await this.client.chat.update({
+          channel: this.channelId,
+          ts: this.messageTs,
+          blocks,
+          text,
+        });
+      } else {
+        await this.client.chat.postMessage({
+          channel: this.channelId,
+          blocks,
+          text,
+        });
+      }
     }
   }
 
   /**
-   * Post intermediate text as its own permanent message, then start a
-   * fresh progress indicator on a new message below it.
+   * Surface intermediate text on the current message with progress appended below.
+   * On the FIRST call, the current "Thinking..." message becomes the intermediate text.
+   * On subsequent calls, the current message is finalized (text only) and a new message starts.
    */
   async showIntermediateText(text: string): Promise<void> {
     if (this.disposed) return;
     if (this.messageReady) await this.messageReady;
     if (!this.messageTs) return;
 
-    // 1. Finalize the current message with the intermediate text (permanent)
+    // If there's already intermediate text on this message, finalize it and start a new message
+    if (this.intermediateText) {
+      // Strip progress from old message — just the text, permanent
+      try {
+        await this.client.chat.update({
+          channel: this.channelId,
+          ts: this.messageTs,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: this.intermediateText } }],
+          text: this.intermediateText,
+        });
+      } catch { /* non-fatal */ }
+
+      // Post a fresh message for the new intermediate text
+      try {
+        const result = await this.client.chat.postMessage({
+          channel: this.channelId,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+          text,
+        });
+        this.messageTs = result.ts!;
+      } catch { /* non-fatal */ }
+    }
+
+    // Set intermediate text as the base content — progress will append below
+    this.intermediateText = text;
+    this.baseBlocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
+    this.richContentActive = true;
+    this.completed = [];
+    this.currentTools = null;
+
+    // Update current message to show the text immediately
     try {
       await this.client.chat.update({
         channel: this.channelId,
         ts: this.messageTs,
-        blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+        blocks: this.baseBlocks,
         text,
       });
-    } catch {
-      // Non-fatal
-    }
-
-    // 2. Post a new progress message below it
-    const { showProgress } = getDisplaySettings();
-    const initialBlocks = showProgress
-      ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }]
-      : [{ type: 'context', elements: [{ type: 'mrkdwn', text: '\u200b' }] }];
-    const initialText = showProgress ? 'Thinking...' : '\u200b';
-
-    try {
-      const result = await this.client.chat.postMessage({
-        channel: this.channelId,
-        blocks: initialBlocks,
-        text: initialText,
-      });
-      this.messageTs = result.ts!;
-      // Reset visual state for the new message
-      this.baseBlocks = [];
-      this.richContentActive = false;
-      this.completed = [];
-      this.currentTools = null;
-    } catch {
-      // If new message post fails, continue on old ts
-    }
+    } catch { /* non-fatal */ }
   }
 
   async abort(errorText: string): Promise<void> {
