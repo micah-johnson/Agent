@@ -269,6 +269,7 @@ export class ProgressUpdater {
     this.richContentActive = true;
     this.completed = [];
     this.currentTools = null;
+    this.lastUpdateTime = 0; // Ensure first progress event on new message flushes immediately
 
     // Update current message to show the text immediately
     try {
