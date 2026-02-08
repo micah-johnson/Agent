@@ -46,7 +46,7 @@ export interface AgentLoopOptions {
   /** Optional file attachments (images, text files) to include in the user message. */
   attachments?: (TextContent | ImageContent)[];
   /** Called when the model emits text alongside tool calls (for proactive responses). */
-  onIntermediateText?: (text: string) => void;
+  onIntermediateText?: (text: string) => Promise<void>;
   /** Steer support — allows injecting new user messages into the running loop. */
   steer?: {
     consume: () => { message: string; attachments?: (TextContent | ImageContent)[] } | null;
@@ -246,7 +246,7 @@ export async function runAgentLoop(
         .map(block => block.text)
         .join('');
       if (textBlocks.trim()) {
-        options.onIntermediateText(textBlocks);
+        await options.onIntermediateText(textBlocks);
       }
     }
 
