@@ -12,8 +12,7 @@
 import { EventEmitter } from 'events';
 import { runSubAgent } from './worker.js';
 import type { Task, TaskStore } from '../tasks/store.js';
-
-const MAX_CONCURRENCY = 3;
+import { getAgentSettings } from '../config/settings.js';
 
 export class WorkerPool extends EventEmitter {
   private running: Map<string, Promise<void>> = new Map();
@@ -29,7 +28,7 @@ export class WorkerPool extends EventEmitter {
   }
 
   submit(task: Task): { queued: boolean; position?: number } {
-    if (this.running.size < MAX_CONCURRENCY) {
+    if (this.running.size < getAgentSettings().maxConcurrentSubagents) {
       this.run(task);
       return { queued: false };
     } else {
@@ -151,7 +150,7 @@ export class WorkerPool extends EventEmitter {
   }
 
   private drain(): void {
-    while (this.running.size < MAX_CONCURRENCY && this.queue.length > 0) {
+    while (this.running.size < getAgentSettings().maxConcurrentSubagents && this.queue.length > 0) {
       const next = this.queue.shift()!;
       this.run(next);
     }

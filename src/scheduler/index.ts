@@ -11,10 +11,9 @@
  */
 
 import { SchedulerStore, type ScheduledJob } from './store.js';
+import { getAgentSettings } from '../config/settings.js';
 
 export type { ScheduledJob } from './store.js';
-
-const TICK_INTERVAL_MS = 30_000; // 30 seconds
 
 export class Scheduler {
   readonly store: SchedulerStore;
@@ -33,7 +32,7 @@ export class Scheduler {
     // downtime fire promptly after startup.
     this.tick();
 
-    this.timer = setInterval(() => this.tick(), TICK_INTERVAL_MS);
+    this.timer = setInterval(() => this.tick(), getAgentSettings().schedulerTickMs);
     // Allow the process to exit even if the timer is still running
     if (this.timer && typeof this.timer === 'object' && 'unref' in this.timer) {
       (this.timer as NodeJS.Timeout).unref();

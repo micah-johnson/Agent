@@ -35,21 +35,57 @@ export interface DisplaySettings {
   showProgress: boolean;
 }
 
+export interface SubagentModelSettings {
+  default: string;
+  options: string[];
+}
+
+export interface ModelSettings {
+  orchestrator: string;
+  compaction: string;
+  subagent: SubagentModelSettings;
+}
+
+export interface AgentSettings {
+  compactionTokenThreshold: number;
+  maxConcurrentSubagents: number;
+  schedulerTickMs: number;
+}
+
 export interface Settings {
   permissions: PermissionsSettings;
   toolApproval?: ToolApprovalSettings;
   codeDiffs?: boolean;
   messageMode?: 'queue' | 'steer' | 'interrupt';
   display?: DisplaySettings;
+  models?: ModelSettings;
+  agent?: AgentSettings;
 }
 
 // ── Defaults ───────────────────────────────────────────────────────────
+
+const DEFAULT_MODELS: ModelSettings = {
+  orchestrator: 'claude-opus-4-6',
+  compaction: 'claude-sonnet-4-5',
+  subagent: {
+    default: 'claude-opus-4-6',
+    options: ['claude-opus-4-6', 'claude-sonnet-4-5'],
+  },
+};
+
+const DEFAULT_AGENT: AgentSettings = {
+  compactionTokenThreshold: 80_000,
+  maxConcurrentSubagents: 3,
+  schedulerTickMs: 30_000,
+};
 
 const DEFAULT_SETTINGS: Settings = {
   permissions: {
     defaultPolicy: 'deny',
     allowedUsers: [],
   },
+  models: DEFAULT_MODELS,
+  agent: DEFAULT_AGENT,
 };
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -111,7 +147,35 @@ function load(): Settings {
       };
     }
 
-    return settings;
+    if (raw.models && typeof raw.models === 'object') {
+        const m = raw.models;
+        settings.models = {
+          orchestrator: typeof m.orchestrator === 'string' ? m.orchestrator : DEFAULT_MODELS.orchestrator,
+          compaction: typeof m.compaction === 'string' ? m.compaction : DEFAULT_MODELS.compaction,
+          subagent: m.subagent && typeof m.subagent === 'object'
+            ? {
+                default: typeof m.subagent.default === 'string' ? m.subagent.default : DEFAULT_MODELS.subagent.default,
+                options: Array.isArray(m.subagent.options)
+                  ? m.subagent.options.filter((o: unknown) => typeof o === 'string')
+                  : DEFAULT_MODELS.subagent.options,
+              }
+            : DEFAULT_MODELS.subagent,
+        };
+      }
+
+      if (raw.agent && typeof raw.agent === 'object') {
+        const a = raw.agent;
+        settings.agent = {
+          compactionTokenThreshold: typeof a.compactionTokenThreshold === 'number'
+            ? a.compactionTokenThreshold : DEFAULT_AGENT.compactionTokenThreshold,
+          maxConcurrentSubagents: typeof a.maxConcurrentSubagents === 'number'
+            ? a.maxConcurrentSubagents : DEFAULT_AGENT.maxConcurrentSubagents,
+          schedulerTickMs: typeof a.schedulerTickMs === 'number'
+            ? a.schedulerTickMs : DEFAULT_AGENT.schedulerTickMs,
+        };
+      }
+
+      return settings;
   } catch (err: any) {
     console.error(`[settings] Failed to load ${SETTINGS_PATH}: ${err.message}`);
     return DEFAULT_SETTINGS;
@@ -175,6 +239,16 @@ export function getMessageMode(): 'queue' | 'steer' | 'interrupt' {
 export function getDisplaySettings(): DisplaySettings {
   const s = getSettings();
   return s.display ?? { showMetadata: true, showProgress: true };
+}
+
+/** Get model settings. */
+export function getModelSettings(): ModelSettings {
+  return getSettings().models ?? DEFAULT_MODELS;
+}
+
+/** Get agent behavior settings. */
+export function getAgentSettings(): AgentSettings {
+  return getSettings().agent ?? DEFAULT_AGENT;
 }
 
 /** Force reload settings from disk. */

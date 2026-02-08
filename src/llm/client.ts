@@ -1,6 +1,7 @@
 import { getModel, type Model, type Message, type TextContent, type ImageContent } from '@mariozechner/pi-ai';
 import { runAgentLoop, type AgentLoopOptions, type AgentLoopUsage, type ProgressEvent } from '../agent/loop.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import { getModelSettings } from '../config/settings.js';
 
 export interface ClaudeResponse {
   text: string;
@@ -24,7 +25,7 @@ export class ClaudeClient {
 
   private getModel(): Model {
     if (!this.model) {
-      this.model = getModel('anthropic', 'claude-opus-4-6');
+      this.model = getModel('anthropic', getModelSettings().orchestrator as any);
     }
     return this.model;
   }

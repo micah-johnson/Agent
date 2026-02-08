@@ -1,7 +1,7 @@
 /**
  * Conversation compaction — token-based summarize-and-reset
  *
- * When the conversation exceeds TOKEN_THRESHOLD input tokens,
+ * When the conversation exceeds the configured token threshold,
  * we summarize it with Sonnet and replace the full history with
  * a single context message containing the summary.
  */
@@ -12,8 +12,11 @@ import {
   type Message,
   type AssistantMessage,
 } from '@mariozechner/pi-ai';
+import { getModelSettings, getAgentSettings } from '../config/settings.js';
 
-export const TOKEN_THRESHOLD = 80_000;
+export function getTokenThreshold(): number {
+  return getAgentSettings().compactionTokenThreshold;
+}
 
 const SUMMARY_PROMPT =
   'Summarize this conversation concisely. Include: key facts discussed, ' +
@@ -32,7 +35,7 @@ export function needsCompaction(messages: Message[]): boolean {
     if (msg.role === 'assistant') {
       const assistant = msg as AssistantMessage;
       const totalInput = (assistant.usage?.input ?? 0) + (assistant.usage?.cacheRead ?? 0);
-      if (totalInput > TOKEN_THRESHOLD) {
+      if (totalInput > getTokenThreshold()) {
         return true;
       }
       return false;
@@ -49,7 +52,7 @@ export async function compactConversation(
   messages: Message[],
   apiKey: string,
 ): Promise<{ messages: Message[]; summary: string }> {
-  const model = getModel('anthropic', 'claude-sonnet-4-5');
+  const model = getModel('anthropic', getModelSettings().compaction as any);
 
   // Build a text representation of the conversation for summarization
   const conversationText = messages

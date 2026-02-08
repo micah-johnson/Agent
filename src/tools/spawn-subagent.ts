@@ -7,6 +7,7 @@
 
 import type { Orchestrator } from '../orchestrator/index.js';
 import type { Tool, ToolInput, ToolResult } from './types.js';
+import { getModelSettings } from '../config/settings.js';
 
 export interface SpawnContext {
   channel_id: string;
@@ -17,6 +18,7 @@ export function createSpawnSubagentTool(
   orchestrator: Orchestrator,
   context: SpawnContext,
 ): Tool {
+  const subagentConfig = getModelSettings().subagent;
   return {
     name: 'spawn_subagent',
     description:
@@ -39,9 +41,8 @@ export function createSpawnSubagentTool(
         },
         model: {
           type: 'string',
-          description:
-            'Model to use: "claude-opus-4-6" (default) or "claude-sonnet-4-5" (fast, simple tasks)',
-          enum: ['claude-opus-4-6', 'claude-sonnet-4-5'],
+          description: `Model to use (default: "${subagentConfig.default}")`,
+          enum: subagentConfig.options,
         },
       },
       required: ['title', 'prompt'],
@@ -50,7 +51,7 @@ export function createSpawnSubagentTool(
     async execute(input: ToolInput): Promise<ToolResult> {
       const title = input.title as string;
       const prompt = input.prompt as string;
-      const model = (input.model as string) || 'claude-opus-4-6';
+      const model = (input.model as string) || subagentConfig.default;
 
       const task = orchestrator.store.create({
         title,
