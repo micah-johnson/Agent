@@ -30,11 +30,17 @@ export interface ToolApprovalSettings {
   alwaysAllow?: string[];
 }
 
+export interface DisplaySettings {
+  showMetadata: boolean;
+  showProgress: boolean;
+}
+
 export interface Settings {
   permissions: PermissionsSettings;
   toolApproval?: ToolApprovalSettings;
   codeDiffs?: boolean;
   messageMode?: 'queue' | 'steer' | 'interrupt';
+  display?: DisplaySettings;
 }
 
 // ── Defaults ───────────────────────────────────────────────────────────
@@ -78,6 +84,14 @@ function load(): Settings {
     const validModes = ['queue', 'steer', 'interrupt'];
     if (typeof raw.messageMode === 'string' && validModes.includes(raw.messageMode)) {
       settings.messageMode = raw.messageMode as 'queue' | 'steer' | 'interrupt';
+    }
+
+    if (raw.display && typeof raw.display === 'object') {
+      const d = raw.display;
+      settings.display = {
+        showMetadata: typeof d.showMetadata === 'boolean' ? d.showMetadata : true,
+        showProgress: typeof d.showProgress === 'boolean' ? d.showProgress : true,
+      };
     }
 
     if (raw.toolApproval && typeof raw.toolApproval === 'object') {
@@ -155,6 +169,12 @@ export function isCodeDiffsEnabled(): boolean {
 /** Get the current message mode (queue, steer, or interrupt). Defaults to steer. */
 export function getMessageMode(): 'queue' | 'steer' | 'interrupt' {
   return getSettings().messageMode || 'steer';
+}
+
+/** Get display settings (controls metadata footer and progress indicators). */
+export function getDisplaySettings(): DisplaySettings {
+  const s = getSettings();
+  return s.display ?? { showMetadata: true, showProgress: true };
 }
 
 /** Force reload settings from disk. */

@@ -20,6 +20,7 @@
 
 import type { WebClient } from '@slack/web-api';
 import type { AgentLoopUsage, ProgressEvent, ToolProgressInfo } from '../agent/loop.js';
+import { getDisplaySettings } from '../config/settings.js';
 
 export type { ProgressEvent };
 
@@ -60,11 +61,18 @@ export class ProgressUpdater {
    * Non-blocking — returns immediately while the API call runs in the background.
    */
   postInitial(): void {
+    const { showProgress } = getDisplaySettings();
+
+    const initialBlocks = showProgress
+      ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }]
+      : [{ type: 'context', elements: [{ type: 'mrkdwn', text: '\u200b' }] }];
+    const initialText = showProgress ? 'Thinking...' : '\u200b';
+
     this.messageReady = this.client.chat
       .postMessage({
         channel: this.channelId,
-        blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }],
-        text: 'Thinking...',
+        blocks: initialBlocks,
+        text: initialText,
       })
       .then((result) => {
         this.messageTs = result.ts!;
@@ -83,6 +91,9 @@ export class ProgressUpdater {
   }
 
   private startHeartbeat(): void {
+    const { showProgress } = getDisplaySettings();
+    if (!showProgress) return;
+
     this.heartbeat = setInterval(() => {
       if (this.messageTs && !this.disposed) {
         this.lastUpdateTime = 0;
@@ -128,6 +139,9 @@ export class ProgressUpdater {
   onProgress(event: ProgressEvent): void {
     if (this.disposed) return;
 
+    const { showProgress } = getDisplaySettings();
+    if (!showProgress) return;
+
     if (event.phase === 'tools_start' && event.tools) {
       this.currentTools = event.tools;
     }
@@ -151,6 +165,8 @@ export class ProgressUpdater {
   async finalize(text: string, toolCalls: number, usage: AgentLoopUsage): Promise<void> {
     this.dispose();
 
+    const { showMetadata } = getDisplaySettings();
+
     const durationMs = Date.now() - this.startTime;
     const footer = buildMetadataFooter(durationMs, toolCalls, usage);
 
@@ -158,8 +174,8 @@ export class ProgressUpdater {
     if (this.messageReady) await this.messageReady;
 
     const blocks = this.richContentActive
-      ? [...this.baseBlocks, footer]
-      : [{ type: 'section', text: { type: 'mrkdwn', text } }, footer];
+      ? showMetadata ? [...this.baseBlocks, footer] : [...this.baseBlocks]
+      : showMetadata ? [{ type: 'section', text: { type: 'mrkdwn', text } }, footer] : [{ type: 'section', text: { type: 'mrkdwn', text } }];
 
     if (this.messageTs) {
       // Update is fast — reuses the established connection
@@ -176,6 +192,28 @@ export class ProgressUpdater {
         blocks,
         text,
       });
+    }
+  }
+
+  async showIntermediateText(text: string): Promise<void> {
+    if (this.disposed) return;
+    if (this.messageReady) await this.messageReady;
+    if (!this.messageTs) return;
+
+    // Update the message to show the intermediate text as a context block
+    const blocks = [
+      { type: 'context', elements: [{ type: 'mrkdwn', text }] },
+    ];
+
+    try {
+      await this.client.chat.update({
+        channel: this.channelId,
+        ts: this.messageTs,
+        blocks,
+        text,
+      });
+    } catch {
+      // Non-fatal
     }
   }
 

@@ -45,6 +45,8 @@ export interface AgentLoopOptions {
   approvalGate?: (toolName: string, toolArgs: Record<string, any>) => Promise<'accept' | 'always' | 'deny'>;
   /** Optional file attachments (images, text files) to include in the user message. */
   attachments?: (TextContent | ImageContent)[];
+  /** Called when the model emits text alongside tool calls (for proactive responses). */
+  onIntermediateText?: (text: string) => void;
   /** Steer support — allows injecting new user messages into the running loop. */
   steer?: {
     consume: () => { message: string; attachments?: (TextContent | ImageContent)[] } | null;
@@ -236,6 +238,17 @@ export async function runAgentLoop(
     const callBlocks = response.content.filter(
       (block): block is ToolCall => block.type === 'toolCall',
     );
+
+    // Surface any intermediate text (proactive responses like "On it")
+    if (callBlocks.length > 0 && options.onIntermediateText) {
+      const textBlocks = response.content
+        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+        .map(block => block.text)
+        .join('');
+      if (textBlocks.trim()) {
+        options.onIntermediateText(textBlocks);
+      }
+    }
 
     if (callBlocks.length === 0) {
       const text = response.content

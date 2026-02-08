@@ -125,6 +125,7 @@ export async function processMessage(
   attachments?: (TextContent | ImageContent)[],
   getProgressTs?: () => string | null,
   steer?: AgentLoopOptions['steer'],
+  onIntermediateText?: (text: string) => void,
 ): Promise<ProcessMessageResult> {
   const t0 = Date.now();
   const checkTasksTool = createCheckTasksTool(orchestrator);
@@ -207,12 +208,12 @@ export async function processMessage(
   log(`Processing: "${userMessage}" (history: ${history.length} messages, attachments: ${attachments?.length ?? 0}, approval: ${approvalMode}, setup: ${Date.now() - t0}ms)`);
   let response;
   try {
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText);
   } catch (firstError: any) {
     // Don't retry if aborted
     if (signal?.aborted) throw firstError;
     log(`First attempt failed: ${firstError?.message || firstError}`);
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText);
   }
   log(`Response: ${response.text?.substring(0, 100)}`);
   log(`Tokens: ${response.usage.inputTokens} in, ${response.usage.outputTokens} out, ${response.usage.cacheReadTokens} cache-read, ${response.usage.cacheWriteTokens} cache-write`);

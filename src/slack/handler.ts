@@ -134,6 +134,7 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           attachments,
           () => progressRef.current.getMessageTs(),
           steer,
+          (text) => progressRef.current.showIntermediateText(text),
         );
 
         // If aborted, abortChannel() already updated the message

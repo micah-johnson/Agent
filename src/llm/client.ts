@@ -43,6 +43,7 @@ export class ClaudeClient {
     approvalGate?: (toolName: string, toolArgs: Record<string, any>) => Promise<'accept' | 'always' | 'deny'>,
     attachments?: (TextContent | ImageContent)[],
     steer?: AgentLoopOptions['steer'],
+    onIntermediateText?: (text: string) => void,
   ): Promise<ClaudeResponse> {
     const model = this.getModel();
 
@@ -58,6 +59,7 @@ export class ClaudeClient {
       approvalGate,
       attachments,
       steer,
+      onIntermediateText,
     });
 
     return {

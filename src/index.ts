@@ -138,6 +138,7 @@ async function main() {
             undefined,
             () => progressRef.current.getMessageTs(),
             steer,
+            (text) => progressRef.current.showIntermediateText(text),
           );
 
           if (!signal.aborted) {
@@ -222,6 +223,7 @@ async function main() {
               undefined,
               () => progressRef.current.getMessageTs(),
               steer,
+              (text) => progressRef.current.showIntermediateText(text),
             );
 
             if (!signal.aborted) {
