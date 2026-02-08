@@ -200,8 +200,30 @@ export async function runAgentLoop(
       usage.totalTokens += response.usage.totalTokens || 0;
     }
 
-    // Aborted mid-request
+    // Aborted mid-request — check if it was a steer before giving up
     if (response.stopReason === 'aborted' || options.signal?.aborted) {
+      // Full abort (stop command) takes priority
+      if (options.signal?.aborted) {
+        return {
+          text: 'Stopped.',
+          iterations,
+          toolCalls: totalToolCalls,
+          stopped: true,
+          messages,
+          usage,
+        };
+      }
+      // Check for steer message — if found, inject and continue the loop
+      const steerMsg = options.steer?.consume();
+      if (steerMsg) {
+        const steerContent: string | (TextContent | ImageContent)[] = steerMsg.attachments?.length
+          ? [{ type: 'text' as const, text: steerMsg.message }, ...steerMsg.attachments]
+          : steerMsg.message;
+        messages.push({ role: 'user', content: steerContent, timestamp: Date.now() });
+        options.steer?.onSteer?.(steerMsg.message);
+        continue;
+      }
+      // Not a steer — genuinely aborted
       return {
         text: 'Stopped.',
         iterations,
