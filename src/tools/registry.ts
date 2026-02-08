@@ -1,5 +1,10 @@
 /**
  * Tool registry - manages available tools
+ *
+ * Tools come from three sources:
+ * 1. Core tools — built-in, always available (bash, file ops, web, etc.)
+ * 2. Custom tools — instance-specific, loaded from data/tools/ (.json or .ts/.js)
+ * 3. MCP tools — external tools from MCP servers (config/mcp-servers.json)
  */
 
 import type { Tool } from './types.js';
@@ -13,6 +18,9 @@ import { webBrowserTool } from './web-browser.js';
 import { backgroundProcessTool } from './background-process.js';
 
 const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, webFetchTool, webBrowserTool, backgroundProcessTool];
+
+/** Custom tools loaded at startup from data/tools/ — set by initialize() */
+let _customTools: Tool[] = [];
 
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
@@ -49,12 +57,24 @@ export class ToolRegistry {
 
   /** Sub-agents get execution tools only — no spawning */
   static forSubAgent(mcpTools?: Tool[]): ToolRegistry {
-    return new ToolRegistry([...CORE_TOOLS, ...(mcpTools || [])]);
+    return new ToolRegistry([...CORE_TOOLS, ..._customTools, ...(mcpTools || [])]);
   }
 
-  /** Orchestrator gets core tools + MCP tools + any extra tools (spawn_subagent, check_tasks) */
+  /** Orchestrator gets core tools + custom tools + MCP tools + any extra tools */
   static forOrchestrator(extraTools: Tool[], mcpTools?: Tool[]): ToolRegistry {
-    return new ToolRegistry([...CORE_TOOLS, ...(mcpTools || []), ...extraTools]);
+    return new ToolRegistry([...CORE_TOOLS, ..._customTools, ...(mcpTools || []), ...extraTools]);
+  }
+
+  /** Initialize custom tools from data/tools/. Call once at startup. */
+  static async loadCustomTools(): Promise<number> {
+    const { loadCustomTools } = await import('./custom-loader.js');
+    _customTools = await loadCustomTools();
+    return _customTools.length;
+  }
+
+  /** Get loaded custom tools (for status/debugging) */
+  static getCustomTools(): Tool[] {
+    return [..._customTools];
   }
 }
 

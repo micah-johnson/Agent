@@ -10,6 +10,7 @@ import { getDb } from './db/sqlite.js';
 import { watchSettings, unwatchSettings, getSettings } from './config/settings.js';
 import { getScheduler } from './scheduler/index.js';
 import { MCPManager } from './mcp/manager.js';
+import { ToolRegistry } from './tools/registry.js';
 import { ensureWorkspace } from './workspace/path.js';
 import { readFileSync, unlinkSync, existsSync } from 'fs';
 import { RESTART_MARKER_PATH } from './tools/self-restart.js';
@@ -51,6 +52,19 @@ async function main() {
   // Initialize orchestrator (creates DB + task store + worker pool)
   const orchestrator = new Orchestrator(claude.getApiKey());
   console.log('✓ Orchestrator initialized');
+
+  // Load custom tools from data/tools/
+  try {
+    const customCount = await ToolRegistry.loadCustomTools();
+    if (customCount > 0) {
+      const names = ToolRegistry.getCustomTools().map(t => t.name).join(', ');
+      console.log(`✓ Custom tools: ${customCount} loaded (${names})`);
+    } else {
+      console.log('✓ Custom tools: none found in data/tools/');
+    }
+  } catch (err: any) {
+    console.error(`⚠️  Custom tools error: ${err?.message || err}`);
+  }
 
   // Initialize MCP connections
   const mcpManager = MCPManager.getInstance();

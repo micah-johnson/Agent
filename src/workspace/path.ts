@@ -18,8 +18,13 @@
  *       cli-tools.json
  *     data/
  *       agent.sqlite
- *       knowledge.md
  *       settings.json
+ *       knowledge/
+ *         _shared.md    — shared knowledge (all users)
+ *         {userId}.md   — per-user knowledge
+ *       tools/          — custom tools (per-instance)
+ *         *.json        — config-driven tools (command/http)
+ *         *.ts / *.js   — script-based tools (full code)
  */
 
 import { join } from 'path';
