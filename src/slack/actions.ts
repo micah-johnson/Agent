@@ -138,7 +138,10 @@ export function setupActionHandlers(
 
     // Process the action as a synthetic user message with progress updates
     await orchestrator.withChannelLock(channelId, async () => {
+      const signal = orchestrator.createAbortSignal(channelId);
       const progress = new ProgressUpdater(channelId, client);
+      orchestrator.setActiveProgress(channelId, progress);
+
       try {
         progress.postInitial(); // Non-blocking
 
@@ -151,11 +154,21 @@ export function setupActionHandlers(
           orchestrator,
           (event) => progress.onProgress(event),
           (ts, blocks) => progress.adoptMessage(ts, blocks),
+          signal,
         );
 
-        await progress.finalize(result.text, result.toolCalls, result.usage);
+        if (!signal.aborted) {
+          await progress.finalize(result.text, result.toolCalls, result.usage);
+        }
+
+        // Await compaction before releasing the lock to prevent race conditions
+        if (result.compaction) await result.compaction;
       } catch (err: any) {
-        await progress.abort('Sorry, something went wrong processing your selection.');
+        if (!signal.aborted) {
+          await progress.abort('Sorry, something went wrong processing your selection.');
+        }
+      } finally {
+        orchestrator.clearAbortSignal(channelId);
       }
     });
   });

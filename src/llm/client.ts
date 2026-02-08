@@ -13,7 +13,6 @@ export interface ClaudeResponse {
 
 export class ClaudeClient {
   private apiKey: string;
-  private model: Model | null = null;
 
   constructor() {
     const key = process.env.ANTHROPIC_API_KEY;
@@ -24,10 +23,7 @@ export class ClaudeClient {
   }
 
   private getModel(): Model {
-    if (!this.model) {
-      this.model = getModel('anthropic', getModelSettings().orchestrator as any);
-    }
-    return this.model;
+    return getModel('anthropic', getModelSettings().orchestrator as any);
   }
 
   getApiKey(): string {

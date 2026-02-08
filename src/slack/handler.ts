@@ -12,7 +12,7 @@ let botUserId: string | null = null;
 export function setBotUserId(id: string) { botUserId = id; }
 
 // Dedup guard — Slack Socket Mode can deliver the same event twice
-const processedMessages = new Set<string>();
+const processedMessages = new Map<string, number>();
 
 const STOP_COMMANDS = new Set(['stop', '/stop', 'cancel', '/cancel']);
 
@@ -46,11 +46,13 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
     // Dedup — skip if we've already seen this exact message
     const dedupeKey = `${messageEvent.channel}:${messageEvent.ts}`;
     if (processedMessages.has(dedupeKey)) return;
-    processedMessages.add(dedupeKey);
-    // Keep set bounded — clear old entries periodically
-    if (processedMessages.size > 200) {
-      const entries = [...processedMessages];
-      entries.slice(0, 100).forEach((k) => processedMessages.delete(k));
+    processedMessages.set(dedupeKey, Date.now());
+    // Evict entries older than 60 seconds
+    if (processedMessages.size > 100) {
+      const cutoff = Date.now() - 60_000;
+      for (const [key, ts] of processedMessages) {
+        if (ts < cutoff) processedMessages.delete(key);
+      }
     }
 
     const channelId = messageEvent.channel;
@@ -154,6 +156,46 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
         // If aborted, abortChannel() already updated the message
         if (!signal.aborted) {
           await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
+        }
+
+        // If compaction was triggered, await it before releasing the channel lock.
+        // This prevents the next message from saving history that compaction overwrites.
+        if (result.compaction) {
+          const compactStart = Date.now();
+          let compactMsgTs: string | null = null;
+
+          // Post a "Compacting..." status message with a ticking elapsed timer
+          const compactTimer = setInterval(async () => {
+            const elapsed = ((Date.now() - compactStart) / 1000).toFixed(0);
+            const text = `\u2699\ufe0f Compacting conversation history... (${elapsed}s)`;
+            try {
+              if (!compactMsgTs) {
+                const posted = await client.chat.postMessage({
+                  channel: channelId,
+                  blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text }] }],
+                  text,
+                });
+                compactMsgTs = posted.ts!;
+              } else {
+                await client.chat.update({
+                  channel: channelId,
+                  ts: compactMsgTs,
+                  blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text }] }],
+                  text,
+                });
+              }
+            } catch { /* non-fatal */ }
+          }, 2000);
+
+          try {
+            await result.compaction;
+          } finally {
+            clearInterval(compactTimer);
+            // Clean up the compacting status message
+            if (compactMsgTs) {
+              await client.chat.delete({ channel: channelId, ts: compactMsgTs }).catch(() => {});
+            }
+          }
         }
       } catch (error: any) {
         if (!signal.aborted) {

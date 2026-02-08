@@ -287,6 +287,9 @@ export class Orchestrator {
         if (!signal.aborted) {
           await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
         }
+
+        // Await compaction before releasing the lock to prevent race conditions
+        if (result.compaction) await result.compaction;
       } catch (err: any) {
         if (!signal.aborted) {
           log(`[orchestrator] Failed to process sub-agent results: ${err?.message || err}`);

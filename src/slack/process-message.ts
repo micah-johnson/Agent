@@ -106,6 +106,8 @@ export interface ProcessMessageResult {
   text: string;
   toolCalls: number;
   usage: AgentLoopUsage;
+  /** If compaction was triggered, this promise resolves when it finishes. */
+  compaction?: Promise<void>;
 }
 
 /**
@@ -231,12 +233,13 @@ export async function processMessage(
     });
   }
 
-  // Check compaction (async) — uses saveSummary which atomically replaces messages
+  // Check compaction — return the promise so the caller can await it
+  // (prevents race where a new message overwrites compacted history)
+  let compaction: Promise<void> | undefined;
   if (needsCompaction(response.messages)) {
     log(`Compaction triggered for channel ${channelId}`);
-    compactConversation(response.messages, claude.getApiKey())
+    compaction = compactConversation(response.messages, claude.getApiKey())
       .then(({ messages: compacted, summary }) => {
-        // Only save compacted version — this replaces the full history we just saved
         conversationStore.saveSummary(channelId, summary, compacted);
         log(`Compaction complete for channel ${channelId} (${summary.length} chars)`);
       })
@@ -249,5 +252,6 @@ export async function processMessage(
     text: response.text?.trim() || 'Task completed.',
     toolCalls: response.toolCalls,
     usage: response.usage,
+    compaction,
   };
 }

@@ -336,7 +336,7 @@ export async function runAgentLoop(
           role: 'toolResult' as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
-          content: [{ type: 'text' as const, text: result.success ? result.output! : `Error: ${result.error}` }],
+          content: [{ type: 'text' as const, text: result.success ? (result.output ?? '') : `Error: ${result.error}` }],
           isError: !result.success,
           timestamp: Date.now(),
         };
