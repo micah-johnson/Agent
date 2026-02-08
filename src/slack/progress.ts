@@ -61,9 +61,12 @@ export class ProgressUpdater {
   /**
    * Fire the initial "Thinking..." message to Slack.
    * Non-blocking — returns immediately while the API call runs in the background.
+   * When showProgress is false, skips the initial message — finalize() will post directly.
    */
   postInitial(): void {
-    // Always show "Thinking..." — showProgress only controls tool call detail updates
+    const { showProgress } = getDisplaySettings();
+    if (!showProgress) return;
+
     const initialBlocks = [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }];
     const initialText = 'Thinking...';
 
@@ -227,7 +230,22 @@ export class ProgressUpdater {
   async showIntermediateText(text: string): Promise<void> {
     if (this.disposed) return;
     if (this.messageReady) await this.messageReady;
-    if (!this.messageTs) return;
+
+    // No initial message (progress disabled) — post a fresh message for the intermediate text
+    if (!this.messageTs) {
+      try {
+        const result = await this.client.chat.postMessage({
+          channel: this.channelId,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+          text,
+        });
+        this.messageTs = result.ts!;
+      } catch { return; }
+      this.intermediateText = text;
+      this.baseBlocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
+      this.richContentActive = true;
+      return;
+    }
 
     // If there's already intermediate text on this message, finalize it and start a new message
     if (this.intermediateText) {
@@ -289,6 +307,10 @@ export class ProgressUpdater {
     if (this.messageTs) {
       await this.client.chat
         .update({ channel: this.channelId, ts: this.messageTs, blocks, text: errorText })
+        .catch(() => {});
+    } else {
+      await this.client.chat
+        .postMessage({ channel: this.channelId, blocks, text: errorText })
         .catch(() => {});
     }
   }
