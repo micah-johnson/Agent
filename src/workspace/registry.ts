@@ -12,6 +12,8 @@ export interface Project {
   path: string;
   description: string;
   language: string;
+  maxDepth?: number;    // Override global MAX_TREE_DEPTH (default: 4)
+  ignore?: string[];    // Additional directories to skip (beyond SKIP_DIRS)
 }
 
 export function loadProjects(): Project[] {

@@ -38,8 +38,8 @@ const MAX_TREE_DEPTH = 4;
 /**
  * Build an indented file tree string for a project directory.
  */
-function buildTree(dir: string, prefix: string = '', depth: number = 0): string {
-  if (depth > MAX_TREE_DEPTH) return '';
+function buildTree(dir: string, prefix: string = '', depth: number = 0, maxDepth: number = MAX_TREE_DEPTH, extraSkip?: Set<string>): string {
+  if (depth > maxDepth) return '';
 
   let result = '';
   let entries: string[];
@@ -58,7 +58,7 @@ function buildTree(dir: string, prefix: string = '', depth: number = 0): string 
     try {
       const stat = statSync(fullPath);
       if (stat.isDirectory()) {
-        if (!SKIP_DIRS.has(entry)) dirs.push(entry);
+        if (!SKIP_DIRS.has(entry) && !(extraSkip?.has(entry))) dirs.push(entry);
       } else {
         files.push(entry);
       }
@@ -69,7 +69,7 @@ function buildTree(dir: string, prefix: string = '', depth: number = 0): string 
 
   for (const d of dirs) {
     result += `${prefix}${d}/\n`;
-    result += buildTree(join(dir, d), prefix + '  ', depth + 1);
+    result += buildTree(join(dir, d), prefix + '  ', depth + 1, maxDepth, extraSkip);
   }
 
   for (const f of files) {
@@ -156,7 +156,9 @@ export function indexProject(project: Project): void {
     return;
   }
 
-  const treeText = buildTree(project.path);
+  const maxDepth = project.maxDepth ?? MAX_TREE_DEPTH;
+  const extraSkip = project.ignore ? new Set(project.ignore) : undefined;
+  const treeText = buildTree(project.path, '', 0, maxDepth, extraSkip);
   const keyFiles = readKeyFiles(project.path);
   const git = getGitInfo(project.path);
   const dependencies = parseDependencies(keyFiles);
