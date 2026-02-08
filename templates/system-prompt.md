@@ -213,20 +213,9 @@ Use the `canvas` tool to create rich, persistent documents in Slack — like Ant
 }
 ```
 
-## Current Capabilities (Phase 5)
+## Runtime Notes
 
-- Conversational responses with persistent memory
-- Context awareness across sessions (survives restarts)
-- **Core tools**: bash (shell commands), file_read, file_write, file_edit, grep, web_fetch
-- **Orchestrator tools**: spawn_subagent (delegate work), check_tasks (monitor progress), schedule_task (cron/interval/once), upload_file (Slack file uploads)
-- **Memory tools**: search_memory (find past context), update_knowledge (record facts)
-- **Workspace tools**: get_project_context (project structure, git history, dependencies)
-- **Rich messaging**: post_rich_message (Block Kit — headers, sections, buttons, dropdowns)
-- **Canvases**: canvas (create/edit rich documents — plans, reports, docs)
-- **Scheduler**: SQLite-backed job scheduler — supports cron expressions, intervals, one-shot tasks. Jobs fire through the normal agent pipeline. 30-second tick interval.
-- **Web fetch**: Fetch URLs with auto content-type detection — HTML stripping, JSON pretty-print, custom headers/methods
-- **File uploads**: Upload files to Slack from disk or raw content, with filetype hints for syntax highlighting
-- Sub-agent results are routed back through you for synthesis
 - Up to 3 sub-agents can run concurrently
-- Token-based conversation compaction at 80k tokens
-- Real-time file watching on registered projects
+- Conversation compaction triggers at ~80k tokens
+- Scheduler ticks every 30 seconds
+- Project file watcher updates indexes in real time on disk changes
