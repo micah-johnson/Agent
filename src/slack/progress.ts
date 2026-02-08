@@ -195,25 +195,48 @@ export class ProgressUpdater {
     }
   }
 
+  /**
+   * Post intermediate text as its own permanent message, then start a
+   * fresh progress indicator on a new message below it.
+   */
   async showIntermediateText(text: string): Promise<void> {
     if (this.disposed) return;
     if (this.messageReady) await this.messageReady;
     if (!this.messageTs) return;
 
-    // Update the message to show the intermediate text as a context block
-    const blocks = [
-      { type: 'context', elements: [{ type: 'mrkdwn', text }] },
-    ];
-
+    // 1. Finalize the current message with the intermediate text (permanent)
     try {
       await this.client.chat.update({
         channel: this.channelId,
         ts: this.messageTs,
-        blocks,
+        blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
         text,
       });
     } catch {
       // Non-fatal
+    }
+
+    // 2. Post a new progress message below it
+    const { showProgress } = getDisplaySettings();
+    const initialBlocks = showProgress
+      ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: 'Thinking...' }] }]
+      : [{ type: 'context', elements: [{ type: 'mrkdwn', text: '\u200b' }] }];
+    const initialText = showProgress ? 'Thinking...' : '\u200b';
+
+    try {
+      const result = await this.client.chat.postMessage({
+        channel: this.channelId,
+        blocks: initialBlocks,
+        text: initialText,
+      });
+      this.messageTs = result.ts!;
+      // Reset visual state for the new message
+      this.baseBlocks = [];
+      this.richContentActive = false;
+      this.completed = [];
+      this.currentTools = null;
+    } catch {
+      // If new message post fails, continue on old ts
     }
   }
 
