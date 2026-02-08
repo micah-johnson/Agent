@@ -7,6 +7,10 @@ import { isUserAllowed, getMessageMode } from '../config/settings.js';
 import { processSlackFiles, type ContentBlock } from './attachments.js';
 export { processMessage, log, type ProcessMessageResult } from './process-message.js';
 
+// Bot user ID — set at startup via auth.test(), used for @mention detection
+let botUserId: string | null = null;
+export function setBotUserId(id: string) { botUserId = id; }
+
 // Dedup guard — Slack Socket Mode can deliver the same event twice
 const processedMessages = new Set<string>();
 
@@ -21,9 +25,16 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
     if (messageEvent.bot_id) return;
     if (messageEvent.subtype && messageEvent.subtype !== 'file_share') return;
 
-    // Only respond to DMs with a real user
-    if (messageEvent.channel_type !== 'im' || !messageEvent.user) {
-      return;
+    // Only respond to DMs (1:1 and group) with a real user
+    if (!messageEvent.user) return;
+    const isDirectDM = messageEvent.channel_type === 'im';
+    const isGroupDM = messageEvent.channel_type === 'mpim';
+    if (!isDirectDM && !isGroupDM) return;
+
+    // In group DMs, only respond when @mentioned
+    if (isGroupDM) {
+      const text = messageEvent.text || '';
+      if (!botUserId || !text.includes(`<@${botUserId}>`)) return;
     }
 
     // Auth check — ignore messages from non-allowed users
@@ -44,7 +55,11 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
 
     const channelId = messageEvent.channel;
     const userId = messageEvent.user;
-    const userMessage = (messageEvent.text || '').trim();
+    // Strip bot @mention from message text so the model sees clean input
+    let userMessage = (messageEvent.text || '').trim();
+    if (botUserId) {
+      userMessage = userMessage.replace(new RegExp(`<@${botUserId}>`, 'g'), '').trim();
+    }
     const slackFiles = (messageEvent as any).files as any[] | undefined;
 
     log(`Received: "${userMessage}" from ${userId}${slackFiles?.length ? ` (${slackFiles.length} file(s))` : ''}`);

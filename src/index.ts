@@ -179,7 +179,11 @@ async function main() {
 
   // Warmup: verify Slack connection is live before accepting messages
   try {
-    await app.client.auth.test();
+    const authResult = await app.client.auth.test();
+    if (authResult.user_id) {
+      const { setBotUserId } = await import('./slack/handler.js');
+      setBotUserId(authResult.user_id as string);
+    }
     console.log('✓ Slack connection verified');
   } catch (error) {
     console.error('⚠️  Slack auth test failed:', error);
