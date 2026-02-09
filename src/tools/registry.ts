@@ -22,7 +22,7 @@ import { backgroundProcessTool } from './background-process.js';
 const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, mathTool, webFetchTool, webBrowserTool, backgroundProcessTool];
 
 /** Read-only tools — safe for explorer, planner, and reviewer agents */
-const READ_ONLY_TOOLS: Tool[] = [fileReadTool, grepTool, mathTool, webFetchTool, webBrowserTool];
+const READ_ONLY_TOOLS: Tool[] = [bashTool, fileReadTool, grepTool, mathTool, webFetchTool, webBrowserTool];
 
 /** Tools allowed per agent type */
 const AGENT_TYPE_TOOLS: Record<AgentType, Tool[]> = {
