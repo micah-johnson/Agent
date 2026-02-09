@@ -13,6 +13,7 @@ import { EventEmitter } from 'events';
 import { runSubAgent } from './worker.js';
 import type { Task, TaskStore } from '../tasks/store.js';
 import { getAgentSettings } from '../config/settings.js';
+import { ABORTED_SENTINEL } from '../agent/loop.js';
 
 export class WorkerPool extends EventEmitter {
   private running: Map<string, Promise<void>> = new Map();
@@ -134,6 +135,15 @@ export class WorkerPool extends EventEmitter {
       // Don't mark completed if aborted — cancelByChannel already marked it failed
       if (signal.aborted) return;
 
+
+      // If the loop returned the abort sentinel, the model stopped unexpectedly
+      // (e.g. API returned 'aborted' stopReason due to context overflow).
+      // Treat as a failure so it doesn't surface as a real result.
+      if (result.text === ABORTED_SENTINEL) {
+        this.store.markFailed(task.id, 'Sub-agent stopped unexpectedly (model returned aborted)');
+        this.emit('task:complete', task.id);
+        return;
+      }
       this.store.markCompleted(task.id, result.text, {
         iterations: result.iterations,
         toolCalls: result.toolCalls,

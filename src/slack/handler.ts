@@ -5,6 +5,7 @@ import { ProgressUpdater } from './progress.js';
 import { processMessage, log } from './process-message.js';
 import { isUserAllowed, getMessageMode } from '../config/settings.js';
 import { processSlackFiles, type ContentBlock } from './attachments.js';
+import { ABORTED_SENTINEL } from '../agent/loop.js';
 export { processMessage, log, type ProcessMessageResult } from './process-message.js';
 
 // Bot user ID — set at startup via auth.test(), used for @mention detection
@@ -177,9 +178,13 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
             displayName,
         );
 
-        // If aborted, abortChannel() already updated the message
+        // If aborted, abortChannel() already updated the message.
+        // Also filter out the abort sentinel — it's a loop artifact, not a real response.
         if (!signal.aborted) {
-          await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
+          const finalText = result.text === ABORTED_SENTINEL
+            ? '(Response interrupted — the model stopped unexpectedly)'
+            : result.text;
+          await progressRef.current.finalize(finalText, result.toolCalls, result.usage);
         }
 
 

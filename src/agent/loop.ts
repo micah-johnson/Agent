@@ -31,6 +31,9 @@ export interface ProgressEvent {
 const MAX_ITERATIONS = 100;
 const API_TIMEOUT_MS = 120_000; // 2 minutes per API call
 
+/** Sentinel value returned when the loop is aborted — not a real model response. */
+export const ABORTED_SENTINEL = '__ABORTED__';
+
 export interface AgentLoopOptions {
   apiKey: string;
   model: Model;
@@ -205,7 +208,7 @@ export async function runAgentLoop(
       // Full abort (stop command) takes priority
       if (options.signal?.aborted) {
         return {
-          text: 'Stopped.',
+          text: ABORTED_SENTINEL,
           iterations,
           toolCalls: totalToolCalls,
           stopped: true,
