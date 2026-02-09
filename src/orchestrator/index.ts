@@ -52,6 +52,9 @@ export class Orchestrator {
     this.pool.on('task:complete', (taskId: string) => {
       this.onTaskComplete(taskId);
     });
+
+    // Clean up tasks orphaned by a previous restart
+    this.pool.cleanupOrphans();
   }
 
   setSlackClient(client: WebClient): void {

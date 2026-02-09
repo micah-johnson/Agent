@@ -15,6 +15,9 @@ import type { Task, TaskStore } from '../tasks/store.js';
 import { getAgentSettings } from '../config/settings.js';
 import { ABORTED_SENTINEL } from '../agent/loop.js';
 
+/** Maximum time a sub-agent can run before being killed (10 minutes). */
+const SUB_AGENT_TIMEOUT_MS = 10 * 60 * 1000;
+
 export class WorkerPool extends EventEmitter {
   private running: Map<string, Promise<void>> = new Map();
   private abortControllers: Map<string, AbortController> = new Map();
@@ -119,7 +122,18 @@ export class WorkerPool extends EventEmitter {
     const controller = new AbortController();
     this.abortControllers.set(task.id, controller);
 
+    // Hard timeout — kill sub-agent if it runs too long
+    const timeout = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        console.log(`[pool] Sub-agent "${task.title}" timed out after ${SUB_AGENT_TIMEOUT_MS / 1000}s — aborting`);
+        controller.abort();
+        this.store.markFailed(task.id, `Timed out after ${SUB_AGENT_TIMEOUT_MS / 60000} minutes`);
+        this.emit('task:complete', task.id);
+      }
+    }, SUB_AGENT_TIMEOUT_MS);
+
     const promise = this.execute(task, controller.signal).finally(() => {
+      clearTimeout(timeout);
       this.running.delete(task.id);
       this.abortControllers.delete(task.id);
       this.drain();
@@ -172,5 +186,31 @@ export class WorkerPool extends EventEmitter {
 
   get queuedCount(): number {
     return this.queue.length;
+  }
+
+  /**
+   * Clean up orphaned tasks — tasks stuck in 'running' or 'pending' status
+   * that have no corresponding in-memory state (e.g. after a process restart).
+   * Call once at startup.
+   */
+  cleanupOrphans(): number {
+    const orphans = this.store.list({ status: 'running' }).concat(this.store.list({ status: 'pending' }));
+    let cleaned = 0;
+
+    for (const task of orphans) {
+      // If we have a controller for it, it's genuinely running — skip
+      if (this.abortControllers.has(task.id)) continue;
+      // If it's in the queue, it's genuinely pending — skip
+      if (this.queue.some(t => t.id === task.id)) continue;
+
+      // Orphaned — mark as failed
+      this.store.markFailed(task.id, 'Orphaned after process restart');
+      cleaned++;
+    }
+
+    if (cleaned > 0) {
+      console.log(`[pool] Cleaned up ${cleaned} orphaned task(s)`);
+    }
+    return cleaned;
   }
 }
