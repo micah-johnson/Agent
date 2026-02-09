@@ -42,18 +42,23 @@ If you need details not in this summary, use search_memory to recover them from 
  * assistant message's input token usage.
  */
 export function needsCompaction(messages: Message[]): boolean {
+  const threshold = getTokenThreshold();
   // Walk backwards to find the last assistant message with usage info
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role === 'assistant') {
       const assistant = msg as AssistantMessage;
-      const totalInput = (assistant.usage?.input ?? 0) + (assistant.usage?.cacheRead ?? 0);
-      if (totalInput > getTokenThreshold()) {
+      const input = assistant.usage?.input ?? 0;
+      const cacheRead = assistant.usage?.cacheRead ?? 0;
+      const totalInput = input + cacheRead;
+      console.log(`[compaction] check: input=${input} cacheRead=${cacheRead} total=${totalInput} threshold=${threshold} needs=${totalInput > threshold}`);
+      if (totalInput > threshold) {
         return true;
       }
       return false;
     }
   }
+  console.log('[compaction] check: no assistant message found');
   return false;
 }
 
