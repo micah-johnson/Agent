@@ -19,7 +19,7 @@ import { createPostRichMessageTool } from '../tools/post-rich-message.js';
 import { createFileEditTool } from '../tools/file-edit.js';
 import { createUploadFileTool } from '../tools/upload-file.js';
 import { createScheduleTaskTool } from '../tools/schedule-task.js';
-import { createSelfRestartTool } from '../tools/self-restart.js';
+import { createSelfRestartTool, getPendingRestart, executePendingRestart } from '../tools/self-restart.js';
 import { createCanvasTool } from '../tools/canvas.js';
 import { getScheduler } from '../scheduler/index.js';
 import { getProcessManager } from '../processes/manager.js';
@@ -296,9 +296,19 @@ export async function processMessage(
     }
   }
 
-  return {
+  const result = {
     text: response.text?.trim() || 'Task completed.',
     toolCalls: response.toolCalls,
     usage: response.usage,
   };
+
+  // Check for pending restart AFTER conversation is saved.
+  // The handler will finalize the Slack message, then we exit.
+  if (getPendingRestart()) {
+    log(`[restart] Conversation saved. Will exit after finalize.`);
+    // Defer the actual exit so the handler has time to finalize the message
+    setTimeout(() => executePendingRestart(), 3000);
+  }
+
+  return result;
 }

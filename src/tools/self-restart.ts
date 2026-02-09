@@ -4,6 +4,26 @@ import { appendFileSync, writeFileSync } from 'fs';
 export const RESTART_MARKER_PATH = '/tmp/agent-restart.json';
 
 /**
+ * Pending restart state. When set, the process-message flow will
+ * exit the process AFTER saving the conversation — preventing data loss.
+ */
+let _pendingRestart: { reason: string } | null = null;
+
+/** Check if a restart was requested (called after conversation is saved). */
+export function getPendingRestart(): { reason: string } | null {
+  return _pendingRestart;
+}
+
+/** Execute the pending restart (call after conversation save + finalize). */
+export function executePendingRestart(): void {
+  if (!_pendingRestart) return;
+  const { reason } = _pendingRestart;
+  console.log(`Self-restart: ${reason}`);
+  // Small delay to let the final Slack message post
+  setTimeout(() => process.exit(1), 1000);
+}
+
+/**
  * Create a factory so we can inject channel_id at registration time.
  */
 export function createSelfRestartTool(context: { channel_id: string; user_id?: string }): Tool {
@@ -48,19 +68,13 @@ export function createSelfRestartTool(context: { channel_id: string; user_id?: s
         console.error('Failed to write restart marker:', err);
       }
 
-      // Schedule the exit after 2 seconds (gives time for response to be sent)
-      setTimeout(() => {
-        console.log(`Self-restart: ${reason}`);
-        process.exit(1);
-      }, 2000);
+      // Signal the pending restart — process-message will exit AFTER saving conversation
+      _pendingRestart = { reason };
 
       return {
         success: true,
-        output: `Restarting in 2 seconds... I'll message you when I'm back.`,
-        metadata: {
-          reason,
-          restart_in_ms: 2000,
-        },
+        output: `Restart scheduled. The conversation will be saved before restarting.`,
+        metadata: { reason },
       };
     },
   };
