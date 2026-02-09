@@ -48,17 +48,10 @@ export function needsCompaction(messages: Message[]): boolean {
     const msg = messages[i];
     if (msg.role === 'assistant') {
       const assistant = msg as AssistantMessage;
-      const input = assistant.usage?.input ?? 0;
-      const cacheRead = assistant.usage?.cacheRead ?? 0;
-      const totalInput = input + cacheRead;
-      console.log(`[compaction] check: input=${input} cacheRead=${cacheRead} total=${totalInput} threshold=${threshold} needs=${totalInput > threshold}`);
-      if (totalInput > threshold) {
-        return true;
-      }
-      return false;
+      const totalInput = (assistant.usage?.input ?? 0) + (assistant.usage?.cacheRead ?? 0);
+      return totalInput > threshold;
     }
   }
-  console.log('[compaction] check: no assistant message found');
   return false;
 }
 

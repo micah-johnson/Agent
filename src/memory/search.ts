@@ -149,6 +149,15 @@ export async function searchMemory(
     console.error(`[search] Vector search failed: ${err?.message || err}`);
   }
 
+  // Apply recency weighting — recent results score higher
+  const now = Date.now();
+  for (const result of resultMap.values()) {
+    const ageMs = now - new Date(result.createdAt).getTime();
+    const ageDays = Math.max(0, ageMs / (1000 * 60 * 60 * 24));
+    const recencyMultiplier = 1 / (1 + ageDays * 0.05);
+    result.score *= recencyMultiplier;
+  }
+
   // Sort by score descending and return top N
   return Array.from(resultMap.values())
     .sort((a, b) => b.score - a.score)
