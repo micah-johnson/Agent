@@ -13,11 +13,12 @@ import { fileReadTool } from './file-read.js';
 import { fileWriteTool } from './file-write.js';
 import { fileEditTool } from './file-edit.js';
 import { grepTool } from './grep.js';
+import { mathTool } from './math.js';
 import { webFetchTool } from './web-fetch.js';
 import { webBrowserTool } from './web-browser.js';
 import { backgroundProcessTool } from './background-process.js';
 
-const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, webFetchTool, webBrowserTool, backgroundProcessTool];
+const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, mathTool, webFetchTool, webBrowserTool, backgroundProcessTool];
 
 /** Custom tools loaded at startup from data/tools/ — set by initialize() */
 let _customTools: Tool[] = [];

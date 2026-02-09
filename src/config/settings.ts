@@ -48,6 +48,7 @@ export interface ModelSettings {
 
 export interface AgentSettings {
   compactionTokenThreshold: number;
+  compactionPreserveExchanges: number;
   maxConcurrentSubagents: number;
   schedulerTickMs: number;
 }
@@ -74,7 +75,8 @@ const DEFAULT_MODELS: ModelSettings = {
 };
 
 const DEFAULT_AGENT: AgentSettings = {
-  compactionTokenThreshold: 120_000,
+  compactionTokenThreshold: 100_000,
+  compactionPreserveExchanges: 5,
   maxConcurrentSubagents: 3,
   schedulerTickMs: 30_000,
 };
@@ -168,6 +170,8 @@ function load(): Settings {
         settings.agent = {
           compactionTokenThreshold: typeof a.compactionTokenThreshold === 'number'
             ? a.compactionTokenThreshold : DEFAULT_AGENT.compactionTokenThreshold,
+          compactionPreserveExchanges: typeof a.compactionPreserveExchanges === 'number'
+            ? a.compactionPreserveExchanges : DEFAULT_AGENT.compactionPreserveExchanges,
           maxConcurrentSubagents: typeof a.maxConcurrentSubagents === 'number'
             ? a.maxConcurrentSubagents : DEFAULT_AGENT.maxConcurrentSubagents,
           schedulerTickMs: typeof a.schedulerTickMs === 'number'

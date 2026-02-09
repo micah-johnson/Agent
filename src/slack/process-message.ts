@@ -106,8 +106,6 @@ export interface ProcessMessageResult {
   text: string;
   toolCalls: number;
   usage: AgentLoopUsage;
-  /** If compaction was triggered, this promise resolves when it finishes. */
-  compaction?: Promise<void>;
 }
 
 /**
@@ -128,6 +126,7 @@ export async function processMessage(
   getProgressTs?: () => string | null,
   steer?: AgentLoopOptions['steer'],
   onIntermediateText?: (text: string) => void,
+  displayName?: string,
 ): Promise<ProcessMessageResult> {
   const t0 = Date.now();
   const checkTasksTool = createCheckTasksTool(orchestrator);
@@ -170,6 +169,9 @@ export async function processMessage(
 
   const knowledge = loadKnowledge(userId);
   let systemPrompt = baseSystemPrompt;
+  if (displayName) {
+    systemPrompt += `\n\nYou are chatting with **${displayName}** (Slack user ID: ${userId}).`;
+  }
   if (knowledge.trim()) {
     systemPrompt += `\n\n## Knowledge Base\n\n${knowledge}`;
   }
@@ -233,25 +235,21 @@ export async function processMessage(
     });
   }
 
-  // Check compaction — return the promise so the caller can await it
-  // (prevents race where a new message overwrites compacted history)
-  let compaction: Promise<void> | undefined;
+  // Check if compaction is needed and do it inline (blocking)
   if (needsCompaction(response.messages)) {
     log(`Compaction triggered for channel ${channelId}`);
-    compaction = compactConversation(response.messages, claude.getApiKey())
-      .then(({ messages: compacted, summary }) => {
-        conversationStore.saveSummary(channelId, summary, compacted);
-        log(`Compaction complete for channel ${channelId} (${summary.length} chars)`);
-      })
-      .catch((err) => {
-        log(`Compaction failed for channel ${channelId}: ${err?.message || err}`);
-      });
+    try {
+      const { messages: compacted, summary } = await compactConversation(response.messages, claude.getApiKey());
+      conversationStore.saveSummary(channelId, summary, compacted);
+      log(`Compaction complete for channel ${channelId} (${summary.length} chars)`);
+    } catch (err: any) {
+      log(`Compaction failed for channel ${channelId}: ${err?.message || err}`);
+    }
   }
 
   return {
     text: response.text?.trim() || 'Task completed.',
     toolCalls: response.toolCalls,
     usage: response.usage,
-    compaction,
   };
 }

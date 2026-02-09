@@ -159,8 +159,7 @@ async function main() {
             await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
           }
 
-          // Await compaction before releasing the lock to prevent race conditions
-          if (result.compaction) await result.compaction;
+
         } catch (err: any) {
           if (!signal.aborted) {
             const { log: errLog } = await import('./slack/process-message.js');
@@ -251,8 +250,7 @@ async function main() {
               await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
             }
 
-            // Await compaction before releasing the lock to prevent race conditions
-            if (result.compaction) await result.compaction;
+
           } catch (err: any) {
             if (!signal.aborted) {
               log(`[restart-resume] Failed: ${err?.message || err}`);

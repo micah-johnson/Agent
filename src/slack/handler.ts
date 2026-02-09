@@ -67,21 +67,23 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
     }
     const slackFiles = (messageEvent as any).files as any[] | undefined;
 
+    // Resolve sender's display name (cached after first lookup)
+    let displayName = userNameCache.get(userId);
+    if (!displayName) {
+      try {
+        const info = await client.users.info({ user: userId });
+        displayName = info.user?.profile?.display_name
+          || info.user?.profile?.real_name
+          || info.user?.real_name
+          || userId;
+        userNameCache.set(userId, displayName);
+      } catch {
+        displayName = userId;
+      }
+    }
+
     // In group DMs, prefix with sender's name so the model can distinguish users
     if (isGroupDM && userMessage) {
-      let displayName = userNameCache.get(userId);
-      if (!displayName) {
-        try {
-          const info = await client.users.info({ user: userId });
-          displayName = info.user?.profile?.display_name
-            || info.user?.profile?.real_name
-            || info.user?.real_name
-            || userId;
-          userNameCache.set(userId, displayName);
-        } catch {
-          displayName = userId;
-        }
-      }
       userMessage = `[${displayName}]: ${userMessage}`;
     }
 
@@ -172,6 +174,7 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           () => progressRef.current.getMessageTs(),
           steer,
           (text) => progressRef.current.showIntermediateText(text),
+            displayName,
         );
 
         // If aborted, abortChannel() already updated the message
@@ -179,45 +182,7 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
         }
 
-        // If compaction was triggered, await it before releasing the channel lock.
-        // This prevents the next message from saving history that compaction overwrites.
-        if (result.compaction) {
-          const compactStart = Date.now();
-          let compactMsgTs: string | null = null;
 
-          // Post a "Compacting..." status message with a ticking elapsed timer
-          const compactTimer = setInterval(async () => {
-            const elapsed = ((Date.now() - compactStart) / 1000).toFixed(0);
-            const text = `\u2699\ufe0f Compacting conversation history... (${elapsed}s)`;
-            try {
-              if (!compactMsgTs) {
-                const posted = await client.chat.postMessage({
-                  channel: channelId,
-                  blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text }] }],
-                  text,
-                });
-                compactMsgTs = posted.ts!;
-              } else {
-                await client.chat.update({
-                  channel: channelId,
-                  ts: compactMsgTs,
-                  blocks: [{ type: 'context', elements: [{ type: 'mrkdwn', text }] }],
-                  text,
-                });
-              }
-            } catch { /* non-fatal */ }
-          }, 2000);
-
-          try {
-            await result.compaction;
-          } finally {
-            clearInterval(compactTimer);
-            // Clean up the compacting status message
-            if (compactMsgTs) {
-              await client.chat.delete({ channel: channelId, ts: compactMsgTs }).catch(() => {});
-            }
-          }
-        }
       } catch (error: any) {
         if (!signal.aborted) {
           const errMsg = error instanceof Error ? error.message : String(error);

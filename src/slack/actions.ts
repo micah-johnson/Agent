@@ -161,8 +161,7 @@ export function setupActionHandlers(
           await progress.finalize(result.text, result.toolCalls, result.usage);
         }
 
-        // Await compaction before releasing the lock to prevent race conditions
-        if (result.compaction) await result.compaction;
+
       } catch (err: any) {
         if (!signal.aborted) {
           await progress.abort('Sorry, something went wrong processing your selection.');
