@@ -4,13 +4,17 @@ AI agent that lives in Slack. Runs commands, writes code, manages infrastructure
 
 ## Features
 
-- **Tool use** — bash, file operations, grep, web fetch, headless browser
+- **Tool use** — bash, file operations, grep, math expressions, web fetch, headless browser (Puppeteer), background processes
 - **Sub-agents** — delegate long-running tasks, run work in parallel
-- **Persistent memory** — conversations, knowledge base, semantic search
+- **Persistent memory** — conversations, per-user knowledge base, semantic search
 - **Workspace awareness** — indexes projects, watches for file changes
+- **Time awareness** — agent knows current date and time
 - **MCP client** — connect to any Model Context Protocol server for additional tools
 - **Scheduler** — cron jobs, intervals, one-shot tasks
 - **Rich Slack UI** — Block Kit messages, buttons, dropdowns, file uploads
+- **Canvases** — rich persistent documents in Slack for plans, reports, and documentation
+- **Conversation steering** — redirect the agent mid-response
+- **Context compaction v2** — progressive summarization with structured summaries, preserves recent exchanges
 - **Approval gates** — optional human-in-the-loop for sensitive operations
 
 ## Prerequisites
@@ -56,13 +60,33 @@ Agent/                        # Code (this repo)
     cli-tools.json             # Available CLI tools
   data/
     agent.sqlite               # Conversations, tasks, memory vectors
-    knowledge.md               # Persistent knowledge base
+    knowledge/                 # Persistent knowledge base
+      _shared.md               # Shared knowledge across all users
+      {userId}.md              # Per-user knowledge files
     settings.json              # Permissions & behavior settings
 ```
 
 The workspace path is set via `AGENT_WORKSPACE` (defaults to `~/.agent`). Upgrading the agent is just `git pull && bun install` — your workspace is untouched.
 
 ## Configuration
+
+### Environment Variables
+
+Core variables in `.env`:
+
+```bash
+# Slack
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional
+VOYAGE_API_KEY=pa-...          # For semantic search
+TIMEZONE=America/New_York      # IANA timezone format (defaults to America/Los_Angeles)
+AGENT_WORKSPACE=~/.agent       # Workspace directory
+```
 
 ### System Prompt
 
@@ -116,6 +140,10 @@ MCP tools are automatically discovered and available to the agent and all sub-ag
   "messageMode": "steer"
 }
 ```
+
+**messageMode options:**
+- `"steer"` (default) — allows redirecting the agent mid-response
+- `"queue"` — waits for current response to finish before processing new messages
 
 ## Running
 

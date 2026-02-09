@@ -169,6 +169,22 @@ export async function processMessage(
 
   const knowledge = loadKnowledge(userId);
   let systemPrompt = baseSystemPrompt;
+
+  // Inject current timestamp for time-awareness
+  const tz = process.env.TIMEZONE || 'America/Los_Angeles';
+  const now = new Date();
+  const timeStr = now.toLocaleString('en-US', {
+    timeZone: tz,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+  systemPrompt += `\n\n## Current Time\n\n${timeStr}`;
+
   if (displayName) {
     systemPrompt += `\n\nYou are chatting with **${displayName}** (Slack user ID: ${userId}).`;
   }
