@@ -1,5 +1,6 @@
 import type { Tool, ToolInput, ToolResult } from './types.js';
 import { appendFileSync, writeFileSync } from 'fs';
+import { ConversationStore } from '../conversations/store.js';
 
 export const RESTART_MARKER_PATH = '/tmp/agent-restart.json';
 
@@ -27,6 +28,8 @@ export function executePendingRestart(): void {
  * Create a factory so we can inject channel_id at registration time.
  */
 export function createSelfRestartTool(context: { channel_id: string; user_id?: string }): Tool {
+  const store = new ConversationStore();
+
   return {
     name: 'self_restart',
     description:
@@ -68,7 +71,28 @@ export function createSelfRestartTool(context: { channel_id: string; user_id?: s
         console.error('Failed to write restart marker:', err);
       }
 
-      // Signal the pending restart — process-message will exit AFTER saving conversation
+      // Eagerly save the current conversation snapshot.
+      // The agent loop is still building messages, but the ConversationStore
+      // already has the full history from before this exchange. We load it,
+      // append a synthetic user message for the restart request, and save.
+      // This way, even if the process dies before the loop finishes,
+      // the conversation up to this point is preserved.
+      try {
+        const history = store.load(context.channel_id);
+        history.push({
+          role: 'user',
+          content: `[Restart requested: ${reason}]`,
+          timestamp: Date.now(),
+        } as any);
+        store.save(context.channel_id, history);
+      } catch (err) {
+        console.error('Failed to save conversation snapshot:', err);
+      }
+
+      // Signal the pending restart — process-message will exit AFTER saving conversation.
+      // If the loop completes normally, it will save the full conversation (overwriting
+      // our snapshot with the complete version) and then exit cleanly.
+      // If the process dies before the loop finishes, we still have the snapshot above.
       _pendingRestart = { reason };
 
       return {
