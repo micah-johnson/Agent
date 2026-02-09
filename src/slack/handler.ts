@@ -6,6 +6,7 @@ import { processMessage, log } from './process-message.js';
 import { isUserAllowed, getMessageMode } from '../config/settings.js';
 import { processSlackFiles, type ContentBlock } from './attachments.js';
 import { ABORTED_SENTINEL } from '../agent/loop.js';
+import { runMessageHook, runErrorHook } from '../hooks/engine.js';
 export { processMessage, log, type ProcessMessageResult } from './process-message.js';
 
 // Bot user ID — set at startup via auth.test(), used for @mention detection
@@ -161,6 +162,18 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           },
         };
 
+        // on_message hook — can block messages or inject context
+        const hookContext = { channel_id: channelId, user_id: userId };
+        const msgHookResult = await runMessageHook(userMessage, { ...hookContext, display_name: displayName });
+        if (msgHookResult.action === 'block') {
+          log(`Message blocked by hook: ${msgHookResult.reason}`);
+          await progressRef.current.abort(msgHookResult.reason || 'Message blocked');
+          return;
+        }
+        if (msgHookResult.context) {
+          userMessage = `[Context from hook: ${msgHookResult.context}]\n\n${userMessage}`;
+        }
+
         const result = await processMessage(
           channelId,
           userId,
@@ -175,7 +188,8 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           () => progressRef.current.getMessageTs(),
           steer,
           (text) => progressRef.current.showIntermediateText(text),
-            displayName,
+          displayName,
+          hookContext,
         );
 
         // If aborted, abortChannel() already updated the message.
@@ -194,6 +208,7 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
           const errStack = error instanceof Error ? error.stack : 'no stack';
           log(`ERROR processing "${userMessage}": ${errMsg}`);
           log(`STACK: ${errStack}`);
+          runErrorHook(errMsg, { channel_id: channelId, user_id: userId }).catch(() => {});
           await progressRef.current.abort('Sorry, something went wrong processing your message.');
         }
       } finally {

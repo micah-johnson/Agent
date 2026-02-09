@@ -41,6 +41,7 @@ export class ClaudeClient {
     attachments?: (TextContent | ImageContent)[],
     steer?: AgentLoopOptions['steer'],
     onIntermediateText?: (text: string) => void,
+    hookContext?: { channel_id: string; user_id: string },
   ): Promise<ClaudeResponse> {
     const model = this.getModel();
 
@@ -57,6 +58,7 @@ export class ClaudeClient {
       attachments,
       steer,
       onIntermediateText,
+      hookContext,
     });
 
     return {

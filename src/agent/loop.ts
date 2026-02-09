@@ -15,6 +15,7 @@ import {
   type ImageContent,
 } from '@mariozechner/pi-ai';
 import { toolRegistry, ToolRegistry } from '../tools/registry.js';
+import { runPreToolHooks, runPostToolHooks } from '../hooks/engine.js';
 
 export interface ToolProgressInfo {
   name: string;
@@ -57,6 +58,8 @@ export interface AgentLoopOptions {
     clearCallAbort: () => void;
     onSteer?: (message: string) => void;
   };
+  /** Hook context — channel/user info for lifecycle hooks. */
+  hookContext?: { channel_id: string; user_id: string };
 }
 
 export interface AgentLoopUsage {
@@ -320,6 +323,28 @@ export async function runAgentLoop(
     });
 
     const executeTool = async (toolCall: ToolCall) => {
+      // Pre-tool hook — can deny or modify tool input
+      if (options.hookContext) {
+        try {
+          const preResult = await runPreToolHooks(toolCall.name, toolCall.arguments || {}, options.hookContext);
+          if (preResult.action === 'deny') {
+            return {
+              role: 'toolResult' as const,
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              content: [{ type: 'text' as const, text: `Blocked by hook: ${preResult.reason || 'no reason given'}` }],
+              isError: true,
+              timestamp: Date.now(),
+            };
+          }
+          if (preResult.action === 'modify' && preResult.modified_input) {
+            toolCall.arguments = preResult.modified_input;
+          }
+        } catch {
+          // Hooks fail open — continue with original tool call
+        }
+      }
+
       const tool = registry.get(toolCall.name);
 
       if (!tool) {
@@ -333,9 +358,10 @@ export async function runAgentLoop(
         };
       }
 
+      let toolResult;
       try {
         const result = await tool.execute(toolCall.arguments);
-        return {
+        toolResult = {
           role: 'toolResult' as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
@@ -345,7 +371,7 @@ export async function runAgentLoop(
         };
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
-        return {
+        toolResult = {
           role: 'toolResult' as const,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
@@ -354,6 +380,28 @@ export async function runAgentLoop(
           timestamp: Date.now(),
         };
       }
+
+      // Post-tool hook — can inject context into tool result
+      if (options.hookContext) {
+        try {
+          const postResult = await runPostToolHooks(
+            toolCall.name,
+            toolCall.arguments || {},
+            toolResult,
+            options.hookContext,
+          );
+          if (postResult.context) {
+            const textBlock = toolResult.content?.find((b: any) => b.type === 'text');
+            if (textBlock) {
+              textBlock.text += `\n[Hook: ${postResult.context}]`;
+            }
+          }
+        } catch {
+          // Hooks fail open
+        }
+      }
+
+      return toolResult;
     };
 
     let toolResults;

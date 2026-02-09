@@ -40,6 +40,7 @@ import {
 } from '../tools/approval.js';
 import { readFileSync, appendFileSync, existsSync } from 'fs';
 import { configPath } from '../workspace/path.js';
+import { runResponseHook } from '../hooks/engine.js';
 
 // File-based log since console.error doesn't flush reliably inside Bolt event handlers
 export function log(msg: string) {
@@ -127,6 +128,7 @@ export async function processMessage(
   steer?: AgentLoopOptions['steer'],
   onIntermediateText?: (text: string) => void,
   displayName?: string,
+  hookContext?: { channel_id: string; user_id: string },
 ): Promise<ProcessMessageResult> {
   const t0 = Date.now();
   const checkTasksTool = createCheckTasksTool(orchestrator);
@@ -167,7 +169,7 @@ export async function processMessage(
     canvasTool,
   ], mcpTools);
 
-  const knowledge = loadKnowledge(userId);
+  const knowledge = loadKnowledge(userId, { message: userMessage });
   let systemPrompt = baseSystemPrompt;
 
   // Inject current timestamp for time-awareness
@@ -230,15 +232,46 @@ export async function processMessage(
   log(`Processing: "${userMessage}" (history: ${history.length} messages, attachments: ${attachments?.length ?? 0}, approval: ${approvalMode}, setup: ${Date.now() - t0}ms)`);
   let response;
   try {
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText, hookContext);
   } catch (firstError: any) {
     // Don't retry if aborted
     if (signal?.aborted) throw firstError;
     log(`First attempt failed: ${firstError?.message || firstError}`);
-    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText);
+    response = await claude.sendMessageWithTools(userMessage, systemPrompt, tools, history, onProgress, signal, approvalGate, attachments, steer, onIntermediateText, hookContext);
   }
   log(`Response: ${response.text?.substring(0, 100)}`);
   log(`Tokens: ${response.usage.inputTokens} in, ${response.usage.outputTokens} out, ${response.usage.cacheReadTokens} cache-read, ${response.usage.cacheWriteTokens} cache-write`);
+
+  // on_response hook — can force the agent to continue
+  if (hookContext) {
+    try {
+      const responseHookResult = await runResponseHook(response.text || '', response.toolCalls, hookContext);
+      if (responseHookResult.action === 'continue') {
+        log(`Response hook requested continue: ${responseHookResult.reason}`);
+        const continueMessage = responseHookResult.reason || 'A hook has requested you continue working on this task.';
+        // Re-run with the continue prompt as a follow-up message
+        const followUp = await claude.sendMessageWithTools(
+          continueMessage, systemPrompt, tools, response.messages,
+          onProgress, signal, approvalGate, attachments, steer, onIntermediateText, hookContext,
+        );
+        // Merge usage and update response
+        response = {
+          ...followUp,
+          toolCalls: response.toolCalls + followUp.toolCalls,
+          usage: {
+            inputTokens: response.usage.inputTokens + followUp.usage.inputTokens,
+            outputTokens: response.usage.outputTokens + followUp.usage.outputTokens,
+            cacheReadTokens: response.usage.cacheReadTokens + followUp.usage.cacheReadTokens,
+            cacheWriteTokens: response.usage.cacheWriteTokens + followUp.usage.cacheWriteTokens,
+            totalTokens: response.usage.totalTokens + followUp.usage.totalTokens,
+          },
+        };
+        log(`Continue response: ${response.text?.substring(0, 100)}`);
+      }
+    } catch (err: any) {
+      log(`Response hook error (continuing normally): ${err?.message || err}`);
+    }
+  }
 
   // Save conversation history
   conversationStore.save(channelId, response.messages);

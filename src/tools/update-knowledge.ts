@@ -30,7 +30,12 @@ export function createUpdateKnowledgeTool(context: {
       properties: {
         section: {
           type: 'string',
-          description: 'Section to update: Preferences, Projects, Decisions, or Patterns',
+          description: 'Block to update. Options:\n' +
+            '- "Preferences" — user preferences and working style\n' +
+            '- "Patterns" — behavioral patterns\n' +
+            '- "persona" — agent personality rules (shared only)\n' +
+            '- "project:{name}" — project-specific knowledge (e.g., "project:data-engine")\n' +
+            '- Legacy: "Projects", "Decisions" still work for backward compatibility',
         },
         entry: {
           type: 'string',
