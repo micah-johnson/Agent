@@ -95,6 +95,13 @@ export function getDb(): Database {
     )
   `);
 
+  // Migration: add agent_type column for specialized sub-agents
+  try {
+    db.exec(`ALTER TABLE tasks ADD COLUMN agent_type TEXT DEFAULT 'worker'`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Project workspace summaries
   db.exec(`
     CREATE TABLE IF NOT EXISTS project_summaries (

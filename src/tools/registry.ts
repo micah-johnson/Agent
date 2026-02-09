@@ -8,6 +8,7 @@
  */
 
 import type { Tool } from './types.js';
+import type { AgentType } from '../tasks/store.js';
 import { bashTool } from './bash.js';
 import { fileReadTool } from './file-read.js';
 import { fileWriteTool } from './file-write.js';
@@ -19,6 +20,17 @@ import { webBrowserTool } from './web-browser.js';
 import { backgroundProcessTool } from './background-process.js';
 
 const CORE_TOOLS: Tool[] = [bashTool, fileReadTool, fileWriteTool, fileEditTool, grepTool, mathTool, webFetchTool, webBrowserTool, backgroundProcessTool];
+
+/** Read-only tools — safe for explorer, planner, and reviewer agents */
+const READ_ONLY_TOOLS: Tool[] = [fileReadTool, grepTool, mathTool, webFetchTool, webBrowserTool];
+
+/** Tools allowed per agent type */
+const AGENT_TYPE_TOOLS: Record<AgentType, Tool[]> = {
+  worker: CORE_TOOLS,
+  explorer: READ_ONLY_TOOLS,
+  planner: READ_ONLY_TOOLS,
+  reviewer: READ_ONLY_TOOLS,
+};
 
 /** Custom tools loaded at startup from data/tools/ — set by initialize() */
 let _customTools: Tool[] = [];
@@ -56,9 +68,14 @@ export class ToolRegistry {
     }));
   }
 
-  /** Sub-agents get execution tools only — no spawning */
-  static forSubAgent(mcpTools?: Tool[]): ToolRegistry {
-    return new ToolRegistry([...CORE_TOOLS, ..._customTools, ...(mcpTools || [])]);
+  /** Sub-agents get tools based on their agent type */
+  static forSubAgent(mcpTools?: Tool[], agentType: AgentType = 'worker'): ToolRegistry {
+    const baseTools = AGENT_TYPE_TOOLS[agentType] || CORE_TOOLS;
+    // Only workers get custom tools and MCP tools (they have full execution capability)
+    if (agentType === 'worker') {
+      return new ToolRegistry([...baseTools, ..._customTools, ...(mcpTools || [])]);
+    }
+    return new ToolRegistry([...baseTools]);
   }
 
   /** Orchestrator gets core tools + custom tools + MCP tools + any extra tools */

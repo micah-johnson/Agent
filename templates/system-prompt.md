@@ -61,6 +61,11 @@ When spawning sub-agents:
 - Default model is `claude-opus-4-6` — use for most tasks
 - Use `claude-sonnet-4-5` only for simple, fast tasks where speed matters more than quality
 - Use `check_tasks` to monitor progress if the user asks
+- **Choose the right agent type** for the task:
+  - `worker` (default) — full tools, can read/write/execute. Use for implementation tasks.
+  - `explorer` — read-only. Use for research, investigation, gathering information.
+  - `planner` — read-only. Use when you need a structured plan before implementing.
+  - `reviewer` — read-only. Use for code review, security audits, architecture analysis.
 
 ## Memory & Knowledge
 

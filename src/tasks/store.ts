@@ -5,11 +5,14 @@
 
 import { getDb } from '../db/sqlite.js';
 
+export type AgentType = 'worker' | 'explorer' | 'planner' | 'reviewer';
+
 export interface Task {
   id: string;
   title: string;
   prompt: string;
   model: string;
+  agent_type: AgentType;
   status: 'pending' | 'running' | 'completed' | 'failed';
   result: string | null;
   error: string | null;
@@ -26,6 +29,7 @@ export interface CreateTaskInput {
   title: string;
   prompt: string;
   model?: string;
+  agent_type?: AgentType;
   channel_id: string;
   user_id: string;
 }
@@ -35,11 +39,12 @@ export class TaskStore {
     const db = getDb();
     const id = crypto.randomUUID();
     const model = input.model || 'claude-sonnet-4-5';
+    const agentType = input.agent_type || 'worker';
 
     db.run(
-      `INSERT INTO tasks (id, title, prompt, model, channel_id, user_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, input.title, input.prompt, model, input.channel_id, input.user_id],
+      `INSERT INTO tasks (id, title, prompt, model, agent_type, channel_id, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, input.title, input.prompt, model, agentType, input.channel_id, input.user_id],
     );
 
     return this.get(id)!;
