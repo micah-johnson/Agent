@@ -49,7 +49,7 @@ function checkMigration(): void {
   migrateKnowledge();
 }
 
-// --- Legacy helpers (kept for fallback path) ---
+// --- Legacy flat-file helpers (kept for pre-migration fallback) ---
 
 /** Migrate legacy single-file knowledge.md → knowledge/_shared.md */
 function migrateLegacy(): void {

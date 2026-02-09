@@ -74,7 +74,7 @@ export function startWatching(projects: Project[]): void {
         watcher.on('addDir', scheduleReindex);
         watcher.on('unlinkDir', scheduleReindex);
 
-        watcher.on('error', (err) => {
+        watcher.on('error', (err: any) => {
           console.error(`[watcher] Error watching ${project.name}: ${err.message}`);
         });
 

@@ -149,7 +149,6 @@ export class WorkerPool extends EventEmitter {
       // Don't mark completed if aborted — cancelByChannel already marked it failed
       if (signal.aborted) return;
 
-
       // If the loop returned the abort sentinel, the model stopped unexpectedly
       // (e.g. API returned 'aborted' stopReason due to context overflow).
       // Treat as a failure so it doesn't surface as a real result.

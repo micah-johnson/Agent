@@ -7,6 +7,7 @@
 
 import {
   completeSimple,
+  type Api,
   type Model,
   type Message,
   type AssistantMessage,
@@ -37,7 +38,7 @@ export const ABORTED_SENTINEL = '__ABORTED__';
 
 export interface AgentLoopOptions {
   apiKey: string;
-  model: Model;
+  model: Model<Api>;
   systemPrompt: string;
   maxIterations?: number;
   tools?: ToolRegistry;

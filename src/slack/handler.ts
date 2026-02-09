@@ -1,4 +1,5 @@
-import type { App, GenericMessageEvent } from '@slack/bolt';
+import type { App } from '@slack/bolt';
+import type { GenericMessageEvent } from '@slack/types';
 import { ClaudeClient } from '../llm/client.js';
 import { Orchestrator } from '../orchestrator/index.js';
 import { ProgressUpdater } from './progress.js';
@@ -200,7 +201,6 @@ export function setupMessageHandler(app: App, claude: ClaudeClient, orchestrator
             : result.text;
           await progressRef.current.finalize(finalText, result.toolCalls, result.usage);
         }
-
 
       } catch (error: any) {
         if (!signal.aborted) {

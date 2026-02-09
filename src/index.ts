@@ -1,4 +1,5 @@
 import { App } from '@slack/bolt';
+import type { WebClient } from '@slack/web-api';
 import { ClaudeClient } from './llm/client.js';
 import { Orchestrator } from './orchestrator/index.js';
 import { setupMessageHandler } from './slack/handler.js';
@@ -19,6 +20,76 @@ import { RESTART_MARKER_PATH } from './tools/self-restart.js';
 process.on('unhandledRejection', (error) => {
   console.error('[agent] Unhandled rejection:', error);
 });
+
+/**
+ * Shared pipeline for fire-and-forget agent runs (scheduler jobs, restart-resume).
+ * Acquires the channel lock, creates progress/abort/steer plumbing, calls processMessage,
+ * and handles finalize/abort/cleanup.
+ */
+async function runAgentPipeline(opts: {
+  channelId: string;
+  userId: string;
+  message: string;
+  client: WebClient;
+  claude: ClaudeClient;
+  orchestrator: Orchestrator;
+  label: string;
+}): Promise<void> {
+  const { channelId, userId, message, client, claude, orchestrator, label } = opts;
+  const { processMessage, log } = await import('./slack/process-message.js');
+  const { ProgressUpdater } = await import('./slack/progress.js');
+
+  orchestrator.withChannelLock(channelId, async () => {
+    const signal = orchestrator.createAbortSignal(channelId);
+    const progressRef = { current: new ProgressUpdater(channelId, client) };
+    orchestrator.setActiveProgress(channelId, progressRef.current);
+    try {
+      progressRef.current.postInitial();
+
+      const steer = {
+        consume: () => orchestrator.consumeSteer(channelId),
+        registerCallAbort: (controller: AbortController) =>
+          orchestrator.registerCallAbort(channelId, controller),
+        clearCallAbort: () => orchestrator.clearCallAbort(channelId),
+        onSteer: (_message: string) => {
+          const oldProgress = progressRef.current;
+          oldProgress.dismiss().catch(() => {});
+          const newProgress = new ProgressUpdater(channelId, client);
+          newProgress.postInitial();
+          progressRef.current = newProgress;
+          orchestrator.setActiveProgress(channelId, newProgress);
+        },
+      };
+
+      const result = await processMessage(
+        channelId,
+        userId,
+        message,
+        client,
+        claude,
+        orchestrator,
+        (event) => progressRef.current.onProgress(event),
+        (ts, blocks) => progressRef.current.adoptMessage(ts, blocks),
+        signal,
+        undefined,
+        () => progressRef.current.getMessageTs(),
+        steer,
+        (text) => progressRef.current.showIntermediateText(text),
+      );
+
+      if (!signal.aborted) {
+        await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
+      }
+    } catch (err: any) {
+      if (!signal.aborted) {
+        log(`[${label}] Failed: ${err?.message || err}`);
+        await progressRef.current.abort(`${label} failed.`);
+      }
+    } finally {
+      orchestrator.clearAbortSignal(channelId);
+    }
+  });
+}
 
 async function main() {
   console.log('🤖 Starting Agent...\n');
@@ -108,69 +179,16 @@ async function main() {
   const scheduler = getScheduler();
   scheduler.start((job) => {
     // Fire-and-forget — each job processes independently
-    (async () => {
-      const { processMessage, log } = await import('./slack/process-message.js');
-      const { ProgressUpdater } = await import('./slack/progress.js');
-
-      log(`[scheduler] Job fired: ${job.name} (${job.id})`);
-
-      orchestrator.withChannelLock(job.channel_id, async () => {
-        const signal = orchestrator.createAbortSignal(job.channel_id);
-        const progressRef = { current: new ProgressUpdater(job.channel_id, app.client) };
-        orchestrator.setActiveProgress(job.channel_id, progressRef.current);
-        try {
-          progressRef.current.postInitial();
-
-          const syntheticMessage = `[Scheduled task: "${job.name}"]\n${job.message}`;
-
-          // Build steer callbacks
-          const steer = {
-            consume: () => orchestrator.consumeSteer(job.channel_id),
-            registerCallAbort: (controller: AbortController) =>
-              orchestrator.registerCallAbort(job.channel_id, controller),
-            clearCallAbort: () => orchestrator.clearCallAbort(job.channel_id),
-            onSteer: (message: string) => {
-              const oldProgress = progressRef.current;
-              oldProgress.dismiss().catch(() => {});
-              const newProgress = new ProgressUpdater(job.channel_id, app.client);
-              newProgress.postInitial();
-              progressRef.current = newProgress;
-              orchestrator.setActiveProgress(job.channel_id, newProgress);
-            },
-          };
-
-          const result = await processMessage(
-            job.channel_id,
-            job.user_id,
-            syntheticMessage,
-            app.client,
-            claude,
-            orchestrator,
-            (event) => progressRef.current.onProgress(event),
-            (ts, blocks) => progressRef.current.adoptMessage(ts, blocks),
-            signal,
-            undefined,
-            () => progressRef.current.getMessageTs(),
-            steer,
-            (text) => progressRef.current.showIntermediateText(text),
-          );
-
-          if (!signal.aborted) {
-            await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
-          }
-
-
-        } catch (err: any) {
-          if (!signal.aborted) {
-            const { log: errLog } = await import('./slack/process-message.js');
-            errLog(`[scheduler] Job failed: ${err?.message || err}`);
-            await progressRef.current.abort(`Scheduled task "${job.name}" failed.`);
-          }
-        } finally {
-          orchestrator.clearAbortSignal(job.channel_id);
-        }
-      });
-    })();
+    console.log(`[scheduler] Job fired: ${job.name} (${job.id})`);
+    runAgentPipeline({
+      channelId: job.channel_id,
+      userId: job.user_id,
+      message: `[Scheduled task: "${job.name}"]\n${job.message}`,
+      client: app.client,
+      claude,
+      orchestrator,
+      label: `Scheduled task "${job.name}"`,
+    });
   });
   console.log('✓ Scheduler started');
 
@@ -198,69 +216,21 @@ async function main() {
       unlinkSync(RESTART_MARKER_PATH);
       console.log(`✓ Restart marker found — resuming in ${marker.channel_id}`);
 
-      // Fire through the normal agent pipeline (async, don't block startup)
-      (async () => {
-        const { processMessage, log } = await import('./slack/process-message.js');
-        const { ProgressUpdater } = await import('./slack/progress.js');
+      const reasonNote = marker.reason && marker.reason !== 'No reason specified'
+        ? ` Reason: ${marker.reason}`
+        : '';
+      const syntheticMessage = `[Restart resume]${reasonNote}\nYou just restarted successfully. Resume the conversation — check context for what you were doing before the restart and continue if there's pending work, otherwise just confirm you're back.`;
 
-        const reasonNote = marker.reason && marker.reason !== 'No reason specified'
-          ? ` Reason: ${marker.reason}`
-          : '';
-        const syntheticMessage = `[Restart resume]${reasonNote}\nYou just restarted successfully. Resume the conversation — check context for what you were doing before the restart and continue if there's pending work, otherwise just confirm you're back.`;
-
-        orchestrator.withChannelLock(marker.channel_id, async () => {
-          const signal = orchestrator.createAbortSignal(marker.channel_id);
-          const progressRef = { current: new ProgressUpdater(marker.channel_id, app.client) };
-          orchestrator.setActiveProgress(marker.channel_id, progressRef.current);
-          try {
-            progressRef.current.postInitial();
-
-            const steer = {
-              consume: () => orchestrator.consumeSteer(marker.channel_id),
-              registerCallAbort: (controller: AbortController) =>
-                orchestrator.registerCallAbort(marker.channel_id, controller),
-              clearCallAbort: () => orchestrator.clearCallAbort(marker.channel_id),
-              onSteer: (message: string) => {
-                const oldProgress = progressRef.current;
-                oldProgress.dismiss().catch(() => {});
-                const newProgress = new ProgressUpdater(marker.channel_id, app.client);
-                newProgress.postInitial();
-                progressRef.current = newProgress;
-                orchestrator.setActiveProgress(marker.channel_id, newProgress);
-              },
-            };
-
-            const result = await processMessage(
-              marker.channel_id,
-              marker.user_id || 'system',
-              syntheticMessage,
-              app.client,
-              claude,
-              orchestrator,
-              (event) => progressRef.current.onProgress(event),
-              (ts, blocks) => progressRef.current.adoptMessage(ts, blocks),
-              signal,
-              undefined,
-              () => progressRef.current.getMessageTs(),
-              steer,
-              (text) => progressRef.current.showIntermediateText(text),
-            );
-
-            if (!signal.aborted) {
-              await progressRef.current.finalize(result.text, result.toolCalls, result.usage);
-            }
-
-
-          } catch (err: any) {
-            if (!signal.aborted) {
-              log(`[restart-resume] Failed: ${err?.message || err}`);
-              await progressRef.current.abort('Restart resume failed.');
-            }
-          } finally {
-            orchestrator.clearAbortSignal(marker.channel_id);
-          }
-        });
-      })();
+      // Fire through the shared agent pipeline (async, don't block startup)
+      runAgentPipeline({
+        channelId: marker.channel_id,
+        userId: marker.user_id || 'system',
+        message: syntheticMessage,
+        client: app.client,
+        claude,
+        orchestrator,
+        label: 'Restart resume',
+      });
     }
   } catch (err) {
     console.error('⚠️  Failed to process restart marker:', err);

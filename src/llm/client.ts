@@ -1,4 +1,4 @@
-import { getModel, type Model, type Message, type TextContent, type ImageContent } from '@mariozechner/pi-ai';
+import { getModel, type Api, type Model, type Message, type TextContent, type ImageContent } from '@mariozechner/pi-ai';
 import { runAgentLoop, type AgentLoopOptions, type AgentLoopUsage, type ProgressEvent } from '../agent/loop.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import { getModelSettings } from '../config/settings.js';
@@ -22,7 +22,7 @@ export class ClaudeClient {
     this.apiKey = key;
   }
 
-  private getModel(): Model {
+  private getModel(): Model<Api> {
     return getModel('anthropic', getModelSettings().orchestrator as any);
   }
 
@@ -40,7 +40,7 @@ export class ClaudeClient {
     approvalGate?: (toolName: string, toolArgs: Record<string, any>) => Promise<'accept' | 'always' | 'deny'>,
     attachments?: (TextContent | ImageContent)[],
     steer?: AgentLoopOptions['steer'],
-    onIntermediateText?: (text: string) => void,
+    onIntermediateText?: (text: string) => void | Promise<void>,
     hookContext?: { channel_id: string; user_id: string },
   ): Promise<ClaudeResponse> {
     const model = this.getModel();
@@ -57,7 +57,7 @@ export class ClaudeClient {
       approvalGate,
       attachments,
       steer,
-      onIntermediateText,
+      onIntermediateText: onIntermediateText ? async (text: string) => { await onIntermediateText(text); } : undefined,
       hookContext,
     });
 
