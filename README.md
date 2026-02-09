@@ -5,8 +5,10 @@ AI agent that lives in Slack. Runs commands, writes code, manages infrastructure
 ## Features
 
 - **Tool use** — bash, file operations, grep, math expressions, web fetch, headless browser (Puppeteer), background processes
-- **Sub-agents** — delegate long-running tasks, run work in parallel
+- **Sub-agents** — delegate long-running tasks, run work in parallel. Specialized types: worker, explorer, planner, reviewer
 - **Persistent memory** — conversations, per-user knowledge base, semantic search
+- **Hooks system** — lifecycle hooks for tool gating, message filtering, context injection, and more
+- **Conversation persistence** — conversations survive restarts with automatic save/restore
 - **Workspace awareness** — indexes projects, watches for file changes
 - **Time awareness** — agent knows current date and time
 - **MCP client** — connect to any Model Context Protocol server for additional tools
@@ -58,11 +60,17 @@ Agent/                        # Code (this repo)
     projects.json              # Registered project paths
     mcp-servers.json           # MCP server connections
     cli-tools.json             # Available CLI tools
+    hooks.json                 # Lifecycle hooks configuration
   data/
     agent.sqlite               # Conversations, tasks, memory vectors
     knowledge/                 # Persistent knowledge base
-      _shared.md               # Shared knowledge across all users
-      {userId}.md              # Per-user knowledge files
+      _shared/
+        persona.md             # Agent personality/behavioral rules
+        projects/
+          {name}.md            # Per-project knowledge
+      {userId}/
+        preferences.md         # User preferences
+        patterns.md            # Learned patterns
     settings.json              # Permissions & behavior settings
 ```
 
@@ -144,6 +152,43 @@ MCP tools are automatically discovered and available to the agent and all sub-ag
 **messageMode options:**
 - `"steer"` (default) — allows redirecting the agent mid-response
 - `"queue"` — waits for current response to finish before processing new messages
+
+### Hooks
+
+`$WORKSPACE/config/hooks.json` lets you run shell commands at key points in the agent lifecycle. Use hooks to gate tool calls, filter messages, inject context, or trigger external integrations.
+
+**Hook events:**
+
+| Event | Fires when | Use case |
+|-------|-----------|----------|
+| `pre_tool` | Before a tool is executed | Deny or modify tool calls |
+| `post_tool` | After a tool completes | Log tool usage, post-process results |
+| `on_message` | When a user message arrives | Block messages, inject context |
+| `on_response` | Before the agent's response is sent | Filter or modify output |
+| `on_error` | When an error occurs | Alert, log, or recover |
+
+**Example configuration:**
+
+```json
+{
+  "hooks": [
+    {
+      "event": "pre_tool",
+      "command": "/home/user/scripts/check-tool.sh",
+      "timeout": 5000
+    },
+    {
+      "event": "on_message",
+      "command": "/home/user/scripts/inject-context.sh",
+      "timeout": 3000
+    }
+  ]
+}
+```
+
+**Design:**
+- **Fail-open** — hook failures (crashes, timeouts) never break the agent. The operation continues normally.
+- **Exit codes:** `0` = success (stdout is parsed for directives), `2` = blocking error (operation is denied), any other code = continue as if the hook wasn't there.
 
 ## Running
 

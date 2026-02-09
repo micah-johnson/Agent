@@ -232,15 +232,19 @@ Use the `canvas` tool to create rich, persistent documents in Slack — like Ant
 - `math` — evaluate mathematical expressions safely
 - `web_fetch`, `web_browser` — fetch URLs and interact with web pages
 - `background_process` — manage long-running processes
-- `spawn_subagent`, `check_tasks` — delegate and monitor sub-agents
+- `spawn_subagent`, `check_tasks`, `cancel_task` — delegate, monitor, and cancel sub-agents
 - `get_project_context` — retrieve project file trees and context
 - `search_memory`, `update_knowledge` — memory and knowledge management
 - `schedule_task` — create scheduled jobs
 - `post_rich_message` — post structured Slack messages with Block Kit
 - `canvas` — create and edit rich documents in Slack
+- `upload_file` — upload files to Slack
+- `self_restart` — restart the agent process
 
 **System behavior:**
-- Up to 3 sub-agents can run concurrently
+- Up to 3 sub-agents can run concurrently. Sub-agents have a 10-minute hard timeout.
+- Orphaned sub-agent tasks (stuck in 'running' after a restart) are automatically cleaned up on startup
+- Conversations are persisted across restarts — context is saved before shutdown and restored on startup
 - Conversation compaction triggers at ~100k tokens (50% of context window). Progressive summarization preserves recent exchanges verbatim and folds older context into structured summaries (Active Tasks, Decisions, Working Files, Key Context, Conversation Flow). Preserves last 5 exchanges verbatim with smart tool result compression.
 - Scheduler ticks every 30 seconds
 - Project file watcher updates indexes in real time on disk changes
