@@ -21,6 +21,7 @@
 import type { WebClient } from '@slack/web-api';
 import type { AgentLoopUsage, ProgressEvent, ToolProgressInfo } from '../agent/loop.js';
 import { getDisplaySettings } from '../config/settings.js';
+import { getProcessManager } from '../processes/manager.js';
 
 export type { ProgressEvent };
 
@@ -486,6 +487,12 @@ export function buildMetadataFooter(
   }
 
   parts.push(`${usage.totalTokens.toLocaleString('en-US')} tokens`);
+
+  // Show running background process count if any
+  const runningProcesses = getProcessManager().list().filter((p) => p.status === 'running').length;
+  if (runningProcesses > 0) {
+    parts.push(`${runningProcesses} background ${runningProcesses === 1 ? 'process' : 'processes'}`);
+  }
 
   return {
     type: 'context',

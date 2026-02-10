@@ -80,6 +80,21 @@ export interface AgentLoopResult {
   usage: AgentLoopUsage;
 }
 
+/** Extract concatenated text from a response's content blocks. */
+function extractText(content: AssistantMessage['content']): string {
+  return content
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map((block) => block.text)
+    .join('');
+}
+
+/** Build steer message content — multimodal array if attachments present, plain string otherwise. */
+function buildSteerContent(steer: { message: string; attachments?: (TextContent | ImageContent)[] }): string | (TextContent | ImageContent)[] {
+  return steer.attachments?.length
+    ? [{ type: 'text' as const, text: steer.message }, ...steer.attachments]
+    : steer.message;
+}
+
 export async function runAgentLoop(
   userMessage: string,
   options: AgentLoopOptions,
@@ -134,10 +149,7 @@ export async function runAgentLoop(
     // Check for steer messages before making the API call
     const steerBefore = options.steer?.consume();
     if (steerBefore) {
-      const steerContent: string | (TextContent | ImageContent)[] = steerBefore.attachments?.length
-        ? [{ type: 'text' as const, text: steerBefore.message }, ...steerBefore.attachments]
-        : steerBefore.message;
-      messages.push({ role: 'user', content: steerContent, timestamp: Date.now() });
+      messages.push({ role: 'user', content: buildSteerContent(steerBefore), timestamp: Date.now() });
       options.steer?.onSteer?.(steerBefore.message);
     }
 
@@ -181,10 +193,7 @@ export async function runAgentLoop(
       if (callController.signal.aborted) {
         const steerMsg = options.steer?.consume();
         if (steerMsg) {
-          const steerContent: string | (TextContent | ImageContent)[] = steerMsg.attachments?.length
-            ? [{ type: 'text' as const, text: steerMsg.message }, ...steerMsg.attachments]
-            : steerMsg.message;
-          messages.push({ role: 'user', content: steerContent, timestamp: Date.now() });
+          messages.push({ role: 'user', content: buildSteerContent(steerMsg), timestamp: Date.now() });
           options.steer?.onSteer?.(steerMsg.message);
           continue; // Restart loop iteration with steered message
         }
@@ -223,10 +232,7 @@ export async function runAgentLoop(
       // Check for steer message — if found, inject and continue the loop
       const steerMsg = options.steer?.consume();
       if (steerMsg) {
-        const steerContent: string | (TextContent | ImageContent)[] = steerMsg.attachments?.length
-          ? [{ type: 'text' as const, text: steerMsg.message }, ...steerMsg.attachments]
-          : steerMsg.message;
-        messages.push({ role: 'user', content: steerContent, timestamp: Date.now() });
+        messages.push({ role: 'user', content: buildSteerContent(steerMsg), timestamp: Date.now() });
         options.steer?.onSteer?.(steerMsg.message);
         continue;
       }
@@ -243,14 +249,9 @@ export async function runAgentLoop(
 
     // No more tool calls — extract final text
     if (response.stopReason === 'stop' || response.stopReason === 'length') {
-      const text = response.content
-        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-        .map((block) => block.text)
-        .join('');
-
       messages.push(response);
       return {
-        text: text || 'Task completed.',
+        text: extractText(response.content) || 'Task completed.',
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
@@ -270,24 +271,16 @@ export async function runAgentLoop(
 
     // Surface any intermediate text (proactive responses like "On it")
     if (callBlocks.length > 0 && options.onIntermediateText) {
-      const textBlocks = response.content
-        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-        .map(block => block.text)
-        .join('');
-      if (textBlocks.trim()) {
-        await options.onIntermediateText(textBlocks);
+      const intermediateText = extractText(response.content);
+      if (intermediateText.trim()) {
+        await options.onIntermediateText(intermediateText);
       }
     }
 
     if (callBlocks.length === 0) {
-      const text = response.content
-        .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-        .map((block) => block.text)
-        .join('');
-
       messages.push(response);
       return {
-        text: text || 'Task completed.',
+        text: extractText(response.content) || 'Task completed.',
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
@@ -341,8 +334,8 @@ export async function runAgentLoop(
           if (preResult.action === 'modify' && preResult.modified_input) {
             toolCall.arguments = preResult.modified_input;
           }
-        } catch {
-          // Hooks fail open — continue with original tool call
+        } catch (err) {
+          console.warn(`[hooks] pre_tool hook failed for "${toolCall.name}":`, err);
         }
       }
 
@@ -397,8 +390,8 @@ export async function runAgentLoop(
               textBlock.text += `\n[Hook: ${postResult.context}]`;
             }
           }
-        } catch {
-          // Hooks fail open
+        } catch (err) {
+          console.warn(`[hooks] post_tool hook failed for "${toolCall.name}":`, err);
         }
       }
 
@@ -458,10 +451,7 @@ export async function runAgentLoop(
     // Check for steer after tool execution
     const steerAfterTools = options.steer?.consume();
     if (steerAfterTools) {
-      const steerContent: string | (TextContent | ImageContent)[] = steerAfterTools.attachments?.length
-        ? [{ type: 'text' as const, text: steerAfterTools.message }, ...steerAfterTools.attachments]
-        : steerAfterTools.message;
-      messages.push({ role: 'user', content: steerContent, timestamp: Date.now() });
+      messages.push({ role: 'user', content: buildSteerContent(steerAfterTools), timestamp: Date.now() });
       options.steer?.onSteer?.(steerAfterTools.message);
       // Continue loop — next iteration will call Claude with new context
     }

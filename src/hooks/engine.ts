@@ -142,8 +142,9 @@ export async function runPreToolHooks(
         }
       }
       // Exit 0 with allow or no output, or any other exit → continue to next hook
-    } catch {
+    } catch (err) {
       // Hook execution failed — fail open, continue
+      console.warn(`[hooks] pre_tool hook failed for "${toolName}":`, err);
     }
   }
 
@@ -175,8 +176,8 @@ export async function runPostToolHooks(
         if (output.context) contexts.push(output.context);
         if (output.suppress_output) suppress = true;
       }
-    } catch {
-      // Fail open
+    } catch (err) {
+      console.warn(`[hooks] post_tool hook failed for "${toolName}":`, err);
     }
   }
 
@@ -208,8 +209,8 @@ export async function runMessageHook(
         // Hook added context but allowed — return context with allow
         return { action: 'allow', context: output.context };
       }
-    } catch {
-      // Fail open
+    } catch (err) {
+      console.warn('[hooks] on_message hook failed:', err);
     }
   }
 
@@ -236,8 +237,8 @@ export async function runResponseHook(
       if (exitCode === 0 && output?.action === 'continue') {
         return { action: 'continue', reason: output.reason };
       }
-    } catch {
-      // Fail open
+    } catch (err) {
+      console.warn('[hooks] on_response hook failed:', err);
     }
   }
 

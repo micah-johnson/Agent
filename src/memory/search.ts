@@ -110,15 +110,26 @@ export async function searchMemory(
       )
       .all(vecBuffer, fetchLimit) as Array<{ entry_id: number; distance: number }>;
 
-    // Join with metadata and apply source filter
-    const vecRows: any[] = [];
-    for (const knn of knnRows) {
-      const entry = db
-        .query('SELECT id, content, source, source_id, role, created_at FROM memory_entries WHERE id = ?')
-        .get(knn.entry_id) as any;
-      if (!entry) continue;
-      if (options.source && entry.source !== options.source) continue;
-      vecRows.push({ ...entry, entry_id: knn.entry_id, distance: knn.distance });
+    // Batch-join with metadata instead of N+1 individual queries
+    let vecRows: any[] = [];
+    if (knnRows.length > 0) {
+      const placeholders = knnRows.map(() => '?').join(',');
+      let joinSql = `SELECT id, content, source, source_id, role, created_at FROM memory_entries WHERE id IN (${placeholders})`;
+      const joinParams: any[] = knnRows.map(r => r.entry_id);
+
+      if (options.source) {
+        joinSql += ' AND source = ?';
+        joinParams.push(options.source);
+      }
+
+      const entryRows = db.query(joinSql).all(...joinParams) as any[];
+      const entryMap = new Map(entryRows.map(e => [e.id, e]));
+
+      for (const knn of knnRows) {
+        const entry = entryMap.get(knn.entry_id);
+        if (!entry) continue;
+        vecRows.push({ ...entry, entry_id: knn.entry_id, distance: knn.distance });
+      }
     }
 
     // Normalize vector distances to scores (lower distance = higher score)
