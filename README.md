@@ -30,7 +30,7 @@ AI agent that lives in Slack. Runs commands, writes code, manages infrastructure
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-org/Agent.git
+git clone https://github.com/micah-johnson/Agent.git
 cd Agent
 bun install
 bun run setup
