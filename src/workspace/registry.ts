@@ -23,7 +23,10 @@ export function loadProjects(): Project[] {
 
   try {
     const raw = readFileSync(CONFIG_PATH, 'utf-8');
-    return JSON.parse(raw) as Project[];
+    const parsed = JSON.parse(raw);
+    // Support both bare array and { projects: [] } formats
+    const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.projects) ? parsed.projects : [];
+    return arr as Project[];
   } catch {
     console.error('[workspace] Failed to parse projects.json');
     return [];
