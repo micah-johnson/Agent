@@ -31,7 +31,92 @@ export interface ProgressEvent {
 }
 
 const MAX_ITERATIONS = 100;
-const API_TIMEOUT_MS = 120_000; // 2 minutes per API call
+const API_TIMEOUT_MS = 300_000; // 5 minutes per API call
+
+/**
+ * Mid-turn context pruning — prevents context from growing unbounded during
+ * long tool-calling turns. Instead of a full LLM-powered compaction (too slow
+ * and expensive mid-loop), we truncate old tool results in-place, keeping the
+ * most recent ones intact so the model has fresh context.
+ *
+ * Threshold is in estimated tokens (chars / 4). We target staying well under
+ * the 200k context window.
+ */
+const MID_TURN_TOKEN_LIMIT = 100_000; // ~100k tokens estimated
+const MID_TURN_PRESERVE_RECENT = 6;   // keep last N tool results untouched
+const TOOL_RESULT_TRUNCATE_LIMIT = 300; // chars to keep from truncated results
+
+/** Rough token estimate — ~4 chars per token for English text. */
+function estimateMessageTokens(messages: Message[]): number {
+  let chars = 0;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      if (typeof msg.content === 'string') {
+        chars += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if ('text' in block) chars += block.text.length;
+        }
+      }
+    } else if (msg.role === 'assistant') {
+      for (const block of (msg as AssistantMessage).content) {
+        if ('text' in block) chars += (block as any).text.length;
+        if ('thinking' in block) chars += (block as any).thinking.length;
+        if (block.type === 'toolCall') chars += JSON.stringify((block as ToolCall).arguments).length + 100;
+      }
+    } else if (msg.role === 'toolResult') {
+      const tr = msg as any;
+      if (tr.content) {
+        for (const block of tr.content) {
+          if (block.type === 'text') chars += block.text.length;
+        }
+      }
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Prune old tool results in-place when context gets too large.
+ * Walks backwards, skipping the most recent tool results, and truncates older ones.
+ */
+function pruneToolResults(messages: Message[]): void {
+  const estimatedTokens = estimateMessageTokens(messages);
+  if (estimatedTokens <= MID_TURN_TOKEN_LIMIT) return;
+
+  // Collect indices of all toolResult messages
+  const toolResultIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'toolResult') {
+      toolResultIndices.push(i);
+    }
+  }
+
+  if (toolResultIndices.length <= MID_TURN_PRESERVE_RECENT) return;
+
+  // Truncate older tool results (everything except the last N)
+  const truncatableIndices = toolResultIndices.slice(0, -MID_TURN_PRESERVE_RECENT);
+  let pruned = 0;
+
+  for (const idx of truncatableIndices) {
+    const msg = messages[idx] as any;
+    if (!msg.content) continue;
+
+    for (const block of msg.content) {
+      if (block.type === 'text' && block.text.length > TOOL_RESULT_TRUNCATE_LIMIT) {
+        const originalLen = block.text.length;
+        const preview = block.text.substring(0, TOOL_RESULT_TRUNCATE_LIMIT);
+        block.text = `${preview}\n[...truncated from ${originalLen} chars — mid-turn context limit]`;
+        pruned++;
+      }
+    }
+  }
+
+  if (pruned > 0) {
+    const newEstimate = estimateMessageTokens(messages);
+    console.log(`[loop] Mid-turn prune: truncated ${pruned} old tool results (${estimatedTokens} → ${newEstimate} est. tokens)`);
+  }
+}
 
 /** Sentinel value returned when the loop is aborted — not a real model response. */
 export const ABORTED_SENTINEL = '__ABORTED__';
@@ -135,7 +220,7 @@ export async function runAgentLoop(
   while (iterations < maxIterations) {
     if (options.signal?.aborted) {
       return {
-        text: 'Stopped.',
+        text: ABORTED_SENTINEL,
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
@@ -198,7 +283,7 @@ export async function runAgentLoop(
           continue; // Restart loop iteration with steered message
         }
         // Not a steer — must be timeout
-        throw new Error('Claude API call timed out after 2 minutes');
+        throw new Error('Claude API call timed out after 5 minutes');
       }
       throw err;
     }
@@ -236,9 +321,11 @@ export async function runAgentLoop(
         options.steer?.onSteer?.(steerMsg.message);
         continue;
       }
-      // Not a steer — genuinely aborted
+      // Not a steer — API call was interrupted (likely timeout or server error)
+      const errorDetail = response.errorMessage ? `: ${response.errorMessage}` : '';
+      console.log(`[loop] API call aborted mid-stream (iteration ${iterations}, ${totalToolCalls} tool calls)${errorDetail}`);
       return {
-        text: 'Stopped.',
+        text: `The API call was interrupted${errorDetail}. You can say "continue" to pick up where I left off.`,
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
@@ -295,7 +382,7 @@ export async function runAgentLoop(
     // Check abort before executing tools
     if (options.signal?.aborted) {
       return {
-        text: 'Stopped.',
+        text: ABORTED_SENTINEL,
         iterations,
         toolCalls: totalToolCalls,
         stopped: true,
@@ -447,6 +534,9 @@ export async function runAgentLoop(
     });
 
     messages.push(...toolResults);
+
+    // Mid-turn context pruning — truncate old tool results if context is getting large
+    pruneToolResults(messages);
 
     // Check for steer after tool execution
     const steerAfterTools = options.steer?.consume();
