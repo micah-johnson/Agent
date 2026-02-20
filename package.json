@@ -14,7 +14,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@mariozechner/pi-ai": "^0.52.6",
+    "@mariozechner/pi-ai": "^0.54.0",
     "@slack/bolt": "^4.2.0",
     "chokidar": "^5.0.0",
     "puppeteer": "^24.37.2",
