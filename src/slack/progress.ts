@@ -41,6 +41,8 @@ export class ProgressUpdater {
   private messageReady: Promise<void> | null = null;
   private baseBlocks: any[] = [];
   private richContentActive = false;
+  /** True when richContentActive came from post_rich_message (adoptMessage), not intermediate text. */
+  private richFromTool = false;
   private disposed = false;
   private lastUpdateTime = 0;
   private pendingEvent: ProgressEvent | null = null;
@@ -133,6 +135,7 @@ export class ProgressUpdater {
     this.messageTs = newTs;
     this.baseBlocks = blocks;
     this.richContentActive = true;
+    this.richFromTool = true;
     this.intermediateText = null; // Rich message takes over
 
     if (oldTs && !wasRichContent) {
@@ -200,6 +203,31 @@ export class ProgressUpdater {
         blocks,
         text,
       });
+    } else if (this.richFromTool) {
+      // Rich message from post_rich_message — preserve it, post text as a new message
+      if (this.messageTs) {
+        // Strip progress from the rich message, add footer
+        const richBlocks = showMetadata ? [...this.baseBlocks, footer] : [...this.baseBlocks];
+        await this.client.chat.update({
+          channel: this.channelId,
+          ts: this.messageTs,
+          blocks: richBlocks,
+          text: 'Rich message',
+        }).catch(() => {});
+      }
+
+      // Post the agent's text response as a separate message (if non-empty)
+      const trimmed = text?.trim();
+      if (trimmed) {
+        const textBlocks = showMetadata
+          ? [{ type: 'section', text: { type: 'mrkdwn', text } }, footer]
+          : [{ type: 'section', text: { type: 'mrkdwn', text } }];
+        await this.client.chat.postMessage({
+          channel: this.channelId,
+          blocks: textBlocks,
+          text,
+        });
+      }
     } else {
       // No intermediate text — normal finalize on the existing message
       const blocks = this.richContentActive
@@ -245,6 +273,43 @@ export class ProgressUpdater {
       this.intermediateText = text;
       this.baseBlocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
       this.richContentActive = true;
+      return;
+    }
+
+    // If current message is from post_rich_message, preserve it and start a new message
+    if (this.richFromTool) {
+      // Strip progress from the rich message — keep it clean
+      this.stopHeartbeat();
+      if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+      this.pendingEvent = null;
+
+      try {
+        await this.client.chat.update({
+          channel: this.channelId,
+          ts: this.messageTs,
+          blocks: this.baseBlocks,
+          text: 'Rich message',
+        });
+      } catch { /* non-fatal */ }
+
+      // Post a fresh message for the intermediate text
+      try {
+        const result = await this.client.chat.postMessage({
+          channel: this.channelId,
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+          text,
+        });
+        this.messageTs = result.ts!;
+      } catch { return; }
+
+      this.intermediateText = text;
+      this.baseBlocks = [{ type: 'section', text: { type: 'mrkdwn', text } }];
+      this.richContentActive = true;
+      this.richFromTool = false;
+      this.completed = [];
+      this.currentTools = null;
+      this.lastUpdateTime = 0;
+      this.startHeartbeat();
       return;
     }
 
