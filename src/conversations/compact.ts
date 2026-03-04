@@ -179,9 +179,10 @@ function extractExistingSummary(messages: Message[]): { summary: string; hasExis
 export async function compactConversation(
   messages: Message[],
   apiKey: string,
+  overridePreserveExchanges?: number,
 ): Promise<{ messages: Message[]; summary: string }> {
   const model = getModel('anthropic', getModelSettings().compaction as any);
-  const preserveCount = getAgentSettings().compactionPreserveExchanges;
+  const preserveCount = overridePreserveExchanges ?? getAgentSettings().compactionPreserveExchanges;
 
   // Split into exchanges
   const exchanges = splitIntoExchanges(messages);

@@ -26,6 +26,7 @@ import { getProcessManager } from '../processes/manager.js';
 import { MCPManager } from '../mcp/manager.js';
 import { ConversationStore } from '../conversations/store.js';
 import { needsCompaction, compactConversation } from '../conversations/compact.js';
+import { estimateMessageTokens } from '../conversations/tokens.js';
 import { loadKnowledge } from '../memory/knowledge.js';
 import { indexMessages } from '../memory/indexer.js';
 import type { AgentLoopOptions, AgentLoopUsage } from '../agent/loop.js';
@@ -208,7 +209,7 @@ export async function processMessage(
     systemPrompt += `\n\n## MCP Servers\n\nConnected MCP servers (tools are prefixed \`mcp__{server}__{tool}\`):\n${mcpLines.join('\n')}`;
   }
 
-  const history = conversationStore.load(channelId);
+  let history = conversationStore.load(channelId);
 
   // Build approval gate if user is in 'approve' mode
   const approvalMode = getToolApprovalMode(userId);
@@ -227,6 +228,30 @@ export async function processMessage(
       }
       return decision;
     };
+  }
+
+  // Pre-call compaction — prevent the "prompt too long" deadlock where
+  // compaction never fires because the API call fails before returning.
+  // Budget: 200k API limit minus ~90k for tool schemas/definitions = ~110k for history + system prompt.
+  const PRE_CALL_TOKEN_LIMIT = 100_000;
+  const PRESERVE_TIERS = [5, 3, 1];
+  let estimatedTokens = estimateMessageTokens(history) + Math.ceil(systemPrompt.length / 4);
+  if (estimatedTokens > PRE_CALL_TOKEN_LIMIT && history.length > 0) {
+    log(`Pre-call compaction needed: ~${estimatedTokens} estimated tokens exceeds ${PRE_CALL_TOKEN_LIMIT} limit`);
+    for (const preserve of PRESERVE_TIERS) {
+      if (estimatedTokens <= PRE_CALL_TOKEN_LIMIT) break;
+      try {
+        log(`Pre-call compaction pass: preserving ${preserve} exchanges`);
+        const { messages: compacted, summary } = await compactConversation(history, claude.getApiKey(), preserve);
+        conversationStore.saveSummary(channelId, summary, compacted);
+        history = compacted;
+        estimatedTokens = estimateMessageTokens(history) + Math.ceil(systemPrompt.length / 4);
+        log(`Pre-call compaction done: ~${estimatedTokens} estimated tokens, ${history.length} messages`);
+      } catch (err: any) {
+        log(`Pre-call compaction failed (preserve=${preserve}): ${err?.message || err}`);
+        break;
+      }
+    }
   }
 
   log(`Processing: "${userMessage}" (history: ${history.length} messages, attachments: ${attachments?.length ?? 0}, approval: ${approvalMode}, setup: ${Date.now() - t0}ms)`);
